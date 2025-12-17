@@ -1,0 +1,109 @@
+{% extends "core/base.html" %}
+
+{% block title %}Time Travel Report · Broker Portal{% endblock %}
+{% block page_title %}Time Travel Report{% endblock %}
+{% block page_subtitle %}View exact state of balances and transactions as of any past date{% endblock %}
+
+{% block content %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <form method="get" style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+        <div>
+            <label for="start_date" class="field-label" style="margin: 0 0 4px 0; display: block;">Start Date:</label>
+            <input type="date" id="start_date" name="start_date" value="{{ start_date_str|default:'' }}" class="field-input" style="width: auto; min-width: 160px;">
+        </div>
+        <div>
+            <label for="end_date" class="field-label" style="margin: 0 0 4px 0; display: block;">End Date:</label>
+            <input type="date" id="end_date" name="end_date" value="{{ end_date_str|default:as_of|date:'Y-m-d' }}" class="field-input" style="width: auto; min-width: 160px;">
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <button type="submit" class="btn btn-primary">View Report</button>
+            <a href="{% url 'reports:time_travel' %}" class="btn">Clear</a>
+        </div>
+    </form>
+    {% if date_range_mode %}
+        <div style="margin-top: 12px; font-size: 14px; color: var(--muted);">
+            Showing transactions from <strong>{{ start_date|date:'M d, Y' }}</strong> to <strong>{{ end_date|date:'M d, Y' }}</strong>
+        </div>
+    {% else %}
+        <div style="margin-top: 12px; font-size: 14px; color: var(--muted);">
+            Showing all transactions up to <strong>{{ as_of|date:'M d, Y' }}</strong>
+        </div>
+    {% endif %}
+</div>
+
+<div class="card-grid">
+    <div class="card">
+        <div class="card-title">Total Turnover{% if date_range_mode %} ({{ start_date|date:'M d' }} - {{ end_date|date:'M d, Y' }}){% else %} (as of {{ as_of|date:'M d, Y' }}){% endif %}</div>
+        <div class="card-value">₹ {{ total_turnover|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Your Profit{% if date_range_mode %} ({{ start_date|date:'M d' }} - {{ end_date|date:'M d, Y' }}){% else %} (as of {{ as_of|date:'M d, Y' }}){% endif %}</div>
+        <div class="card-value positive">₹ {{ your_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Company Profit{% if date_range_mode %} ({{ start_date|date:'M d' }} - {{ end_date|date:'M d, Y' }}){% else %} (as of {{ as_of|date:'M d, Y' }}){% endif %}</div>
+        <div class="card-value">₹ {{ company_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Clients Owe You{% if date_range_mode %} ({{ start_date|date:'M d' }} - {{ end_date|date:'M d, Y' }}){% else %} (as of {{ as_of|date:'M d, Y' }}){% endif %}</div>
+        <div class="card-value negative">₹ {{ pending_clients_owe|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">You Owe Clients{% if date_range_mode %} ({{ start_date|date:'M d' }} - {{ end_date|date:'M d, Y' }}){% else %} (as of {{ as_of|date:'M d, Y' }}){% endif %}</div>
+        <div class="card-value negative">₹ {{ pending_you_owe_clients|default:0 }}</div>
+    </div>
+</div>
+
+<div class="table-wrapper mt-4">
+    <div class="table-header">
+        <div>Transactions{% if date_range_mode %} from {{ start_date|date:'M d, Y' }} to {{ end_date|date:'M d, Y' }}{% else %} up to {{ as_of|date:'M d, Y' }}{% endif %} (showing latest {{ recent_transactions|length }})</div>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Client</th>
+            <th>Exchange</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Your Share</th>
+            <th>Client Share</th>
+            <th>Company Share</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for tx in recent_transactions %}
+            <tr>
+                <td>{{ tx.date }}</td>
+                <td>
+                    <a href="{% url 'clients:detail' tx.client_exchange.client.pk %}" style="color: var(--accent); text-decoration: none;">
+                        {{ tx.client_exchange.client.name }}
+                    </a>
+                </td>
+                <td>{{ tx.client_exchange.exchange.name }}</td>
+                <td>
+                    {% if tx.transaction_type == 'PROFIT' %}
+                        <span class="badge badge-success">{{ tx.get_transaction_type_display }}</span>
+                    {% elif tx.transaction_type == 'LOSS' %}
+                        <span class="badge" style="background: #fee2e2; color: var(--danger);">{{ tx.get_transaction_type_display }}</span>
+                    {% elif tx.transaction_type == 'FUNDING' %}
+                        <span class="badge" style="background: #dbeafe; color: #1e40af;">{{ tx.get_transaction_type_display }}</span>
+                    {% else %}
+                        <span class="badge badge-muted">{{ tx.get_transaction_type_display }}</span>
+                    {% endif %}
+                </td>
+                <td><strong>₹ {{ tx.amount }}</strong></td>
+                <td>₹ {{ tx.your_share_amount|default:0 }}</td>
+                <td>₹ {{ tx.client_share_amount|default:0 }}</td>
+                <td>₹ {{ tx.company_share_amount|default:0 }}</td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="8">No transactions found{% if date_range_mode %} between {{ start_date|date:'M d, Y' }} and {{ end_date|date:'M d, Y' }}{% else %} up to {{ as_of|date:'M d, Y' }}{% endif %}.</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+

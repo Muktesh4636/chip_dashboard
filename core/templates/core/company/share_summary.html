@@ -1,0 +1,139 @@
+{% extends "core/base.html" %}
+
+{% block title %}Company Share · Broker Portal{% endblock %}
+{% block page_title %}Company Share Summary{% endblock %}
+{% block page_subtitle %}Total company profit and breakdown by client and exchange{% endblock %}
+
+{% block content %}
+<!-- Client Search -->
+<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <form method="get" style="display: flex; gap: 12px; align-items: flex-end;">
+        <div style="flex: 1;">
+            <label class="field-label">Search by Client</label>
+            <select name="client" class="field-input" onchange="this.form.submit()">
+                <option value="">All Clients</option>
+                {% for client in all_clients %}
+                    <option value="{{ client.pk }}" {% if selected_client and client.pk == selected_client.pk %}selected{% endif %}>
+                        {{ client.name }}{% if client.code %} ({{ client.code }}){% endif %}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        {% if selected_client %}
+            <a href="{% url 'company:summary' %}" class="btn" style="white-space: nowrap;">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+<div class="card-grid">
+    <div class="card">
+        <div class="card-title">{% if selected_client %}Company Share from {{ selected_client.name }}{% else %}Total Company Profit{% endif %}</div>
+        <div class="card-value">₹ {{ total_company_profit|default:0 }}</div>
+    </div>
+</div>
+
+{% if selected_client %}
+<!-- Selected Client Details -->
+<div style="margin-top: 24px;">
+    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Breakdown for {{ selected_client.name }}{% if selected_client.code %} ({{ selected_client.code }}){% endif %}</h2>
+    <div class="table-wrapper">
+        <div class="table-header">
+            <div>Total exchanges: {{ client_exchange_details|length }}</div>
+        </div>
+        <table>
+            <thead>
+            <tr>
+                <th>Exchange</th>
+                <th>Company Share</th>
+                <th>Transactions</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for item in client_exchange_details %}
+                <tr>
+                    <td><strong>{{ item.client_exchange__exchange__name }}{% if item.client_exchange__exchange__code %} ({{ item.client_exchange__exchange__code }}){% endif %}</strong></td>
+                    <td><strong>₹ {{ item.total|default:0 }}</strong></td>
+                    <td>{{ item.transaction_count }}</td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="3">No company share records found for this client.</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if not selected_client %}
+<div style="margin-top: 24px;">
+    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Per Client Breakdown</h2>
+    <div class="table-wrapper">
+        <div class="table-header">
+            <div>Total clients: {{ per_client|length }}</div>
+        </div>
+        <table>
+            <thead>
+            <tr>
+                <th>Client Name</th>
+                <th>Company Share</th>
+                <th>Actions</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for item in per_client %}
+                <tr>
+                    <td><strong>{{ item.client_exchange__client__name }}</strong></td>
+                    <td><strong>₹ {{ item.total|default:0 }}</strong></td>
+                    <td>
+                        <a href="?client={{ item.client_exchange__client__id }}" class="btn" style="padding: 6px 12px; font-size: 14px;">View Details</a>
+                    </td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="3">No company share records found.</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if not selected_client %}
+<div style="margin-top: 24px;">
+    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Per Exchange Breakdown</h2>
+    <div class="table-wrapper">
+        <div class="table-header">
+            <div>Total exchanges: {{ per_exchange|length }}</div>
+        </div>
+        <table>
+            <thead>
+            <tr>
+                <th>Client</th>
+                <th>Exchange Name</th>
+                <th>Company Share</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for item in per_exchange %}
+                <tr>
+                    <td>
+                        <a href="?client={{ item.client_exchange__client__id }}" style="color: var(--accent); text-decoration: none;">{{ item.client_exchange__client__name }}</a>
+                    </td>
+                    <td><strong>{{ item.client_exchange__exchange__name }}</strong></td>
+                    <td><strong>₹ {{ item.total|default:0 }}</strong></td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="3">No company share records found.</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+

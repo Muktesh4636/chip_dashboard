@@ -1,0 +1,27 @@
+{% extends "core/base.html" %}
+
+{% block title %}Add Exchange · Broker Portal{% endblock %}
+{% block page_title %}Add Exchange{% endblock %}
+{% block page_subtitle %}Select a client to add an exchange{% endblock %}
+
+{% block content %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); max-width: 600px;">
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-row">
+            <label class="field-label">Select Client *</label>
+            <select name="client" class="field-input" required>
+                <option value="">Choose a client</option>
+                {% for client in clients %}
+                    <option value="{{ client.pk }}">{{ client.name }}{% if client.code %} ({{ client.code }}){% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">Continue</button>
+            <a href="{% url 'exchanges:list' %}" class="btn">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

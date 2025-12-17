@@ -1,0 +1,400 @@
+{% extends "core/base.html" %}
+
+{% block title %}Reports · Broker Portal{% endblock %}
+{% block page_title %}Reports Overview{% endblock %}
+{% block page_subtitle %}High-level summary of all transactions and profits{% endblock %}
+
+{% block page_actions %}
+<a href="{% url 'reports:time_travel' %}" class="btn btn-primary">Time Travel Report</a>
+{% endblock %}
+
+{% block content %}
+<!-- Chart.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<!-- Report Type Tabs -->
+<div style="background: var(--bg-content); border-radius: 8px; padding: 0; border: 1px solid var(--border); margin-bottom: 24px; overflow: hidden;">
+    <div style="display: flex; border-bottom: 1px solid var(--border);">
+        <a href="?report_type=daily" style="flex: 1; padding: 16px; text-align: center; text-decoration: none; color: var(--text); border-right: 1px solid var(--border); background: {% if report_type == 'daily' %}var(--accent-soft){% else %}transparent{% endif %}; font-weight: {% if report_type == 'daily' %}600{% else %}400{% endif %};">
+            Daily Report
+        </a>
+        <a href="?report_type=weekly" style="flex: 1; padding: 16px; text-align: center; text-decoration: none; color: var(--text); border-right: 1px solid var(--border); background: {% if report_type == 'weekly' %}var(--accent-soft){% else %}transparent{% endif %}; font-weight: {% if report_type == 'weekly' %}600{% else %}400{% endif %};">
+            Weekly Report
+        </a>
+        <a href="?report_type=monthly" style="flex: 1; padding: 16px; text-align: center; text-decoration: none; color: var(--text); background: {% if report_type == 'monthly' %}var(--accent-soft){% else %}transparent{% endif %}; font-weight: {% if report_type == 'monthly' %}600{% else %}400{% endif %};">
+            Monthly Report
+        </a>
+    </div>
+</div>
+
+<div class="card-grid">
+    <div class="card">
+        <div class="card-title">Total Turnover</div>
+        <div class="card-value">₹ {{ total_turnover|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Your Total Profit</div>
+        <div class="card-value positive">₹ {{ your_total_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Company Profit</div>
+        <div class="card-value">₹ {{ company_profit|default:0 }}</div>
+    </div>
+</div>
+
+{% if report_type == 'daily' %}
+<!-- Daily Report Charts -->
+<div style="margin-top: 24px;">
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Daily Trends (Last 30 Days)</h2>
+        <canvas id="dailyTrendsChart" style="max-height: 400px;"></canvas>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-top: 24px;">
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Transaction Type Breakdown</h2>
+        <canvas id="typeBreakdownChart" style="max-height: 300px;"></canvas>
+    </div>
+    
+    {% if client_labels %}
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Top Clients by Profit (Last 30 Days)</h2>
+        <canvas id="topClientsChart" style="max-height: 300px;"></canvas>
+    </div>
+    {% endif %}
+</div>
+
+{% elif report_type == 'weekly' %}
+<!-- Weekly Report Charts -->
+<div style="margin-top: 24px;">
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Weekly Trends (Last 4 Weeks)</h2>
+        <canvas id="weeklyTrendsChart" style="max-height: 400px;"></canvas>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-top: 24px;">
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Transaction Type Breakdown</h2>
+        <canvas id="typeBreakdownChart" style="max-height: 300px;"></canvas>
+    </div>
+    
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Daily Trends (Last 30 Days)</h2>
+        <canvas id="dailyTrendsChart" style="max-height: 300px;"></canvas>
+    </div>
+</div>
+
+{% elif report_type == 'monthly' %}
+<!-- Monthly Report Charts -->
+<div style="margin-top: 24px;">
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Monthly Trends (Last 6 Months)</h2>
+        <canvas id="monthlyTrendsChart" style="max-height: 400px;"></canvas>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-top: 24px;">
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Transaction Type Breakdown</h2>
+        <canvas id="typeBreakdownChart" style="max-height: 300px;"></canvas>
+    </div>
+    
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Weekly Trends (Last 4 Weeks)</h2>
+        <canvas id="weeklyTrendsChart" style="max-height: 300px;"></canvas>
+    </div>
+</div>
+{% endif %}
+
+<div class="mt-4">
+    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Report Options</h2>
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border);">
+        <p style="margin-bottom: 12px; color: var(--muted);">Generate reports for specific periods or view historical snapshots.</p>
+        <div style="margin-bottom: 16px;">
+            <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">Period Reports:</div>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <a href="{% url 'reports:daily' %}" class="btn">Daily Report</a>
+                <a href="{% url 'reports:weekly' %}" class="btn">Weekly Report</a>
+                <a href="{% url 'reports:monthly' %}" class="btn">Monthly Report</a>
+                <a href="{% url 'reports:custom' %}" class="btn">Custom Period</a>
+            </div>
+        </div>
+        <div>
+            <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">Other Reports:</div>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <a href="{% url 'reports:time_travel' %}" class="btn btn-primary">Time Travel Report</a>
+                <a href="{% url 'pending:summary' %}" class="btn">Pending Payments</a>
+                <a href="{% url 'company_share:summary' %}" class="btn">Company Share Report</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Daily Trends Chart
+{% if report_type == 'daily' or report_type == 'weekly' %}
+const dailyCtx = document.getElementById('dailyTrendsChart').getContext('2d');
+new Chart(dailyCtx, {
+    type: 'line',
+    data: {
+        labels: {{ daily_labels }},
+        datasets: [
+            {
+                label: 'Profit',
+                data: {{ daily_profit }},
+                borderColor: '#16a34a',
+                backgroundColor: 'rgba(22, 163, 74, 0.1)',
+                tension: 0.4,
+                fill: true
+            },
+            {
+                label: 'Loss',
+                data: {{ daily_loss }},
+                borderColor: '#dc2626',
+                backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                tension: 0.4,
+                fill: true
+            },
+            {
+                label: 'Turnover',
+                data: {{ daily_turnover }},
+                borderColor: '#14b8a6',
+                backgroundColor: 'rgba(20, 184, 166, 0.1)',
+                tension: 0.4,
+                fill: true,
+                yAxisID: 'y1'
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': ₹' + context.parsed.y.toLocaleString('en-IN');
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return '₹' + value.toLocaleString('en-IN');
+                    }
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return '₹' + value.toLocaleString('en-IN');
+                    }
+                },
+                grid: {
+                    drawOnChartArea: false,
+                },
+            }
+        }
+    }
+});
+{% endif %}
+
+// Weekly Trends Chart
+{% if report_type == 'weekly' or report_type == 'monthly' %}
+const weeklyCtx = document.getElementById('weeklyTrendsChart').getContext('2d');
+new Chart(weeklyCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ weekly_labels }},
+        datasets: [
+            {
+                label: 'Profit',
+                data: {{ weekly_profit }},
+                backgroundColor: 'rgba(22, 163, 74, 0.7)',
+                borderColor: '#16a34a',
+                borderWidth: 1
+            },
+            {
+                label: 'Loss',
+                data: {{ weekly_loss }},
+                backgroundColor: 'rgba(220, 38, 38, 0.7)',
+                borderColor: '#dc2626',
+                borderWidth: 1
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': ₹' + context.parsed.y.toLocaleString('en-IN');
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return '₹' + value.toLocaleString('en-IN');
+                    }
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+// Transaction Type Breakdown Chart
+{% if report_type == 'daily' or report_type == 'weekly' or report_type == 'monthly' %}
+const typeCtx = document.getElementById('typeBreakdownChart').getContext('2d');
+new Chart(typeCtx, {
+    type: 'doughnut',
+    data: {
+        labels: {{ type_labels }},
+        datasets: [{
+            data: {{ type_amounts }},
+            backgroundColor: {{ type_colors }},
+            borderWidth: 2,
+            borderColor: '#ffffff'
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                position: 'bottom',
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const label = context.label || '';
+                        const value = context.parsed || 0;
+                        return label + ': ₹' + value.toLocaleString('en-IN');
+                    }
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+// Monthly Trends Chart
+{% if report_type == 'monthly' %}
+const monthlyCtx = document.getElementById('monthlyTrendsChart').getContext('2d');
+new Chart(monthlyCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ monthly_labels }},
+        datasets: [
+            {
+                label: 'Profit',
+                data: {{ monthly_profit }},
+                backgroundColor: 'rgba(22, 163, 74, 0.7)',
+                borderColor: '#16a34a',
+                borderWidth: 1
+            },
+            {
+                label: 'Loss',
+                data: {{ monthly_loss }},
+                backgroundColor: 'rgba(220, 38, 38, 0.7)',
+                borderColor: '#dc2626',
+                borderWidth: 1
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': ₹' + context.parsed.y.toLocaleString('en-IN');
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return '₹' + value.toLocaleString('en-IN');
+                    }
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if report_type == 'daily' and client_labels %}
+// Top Clients Chart
+const clientsCtx = document.getElementById('topClientsChart').getContext('2d');
+new Chart(clientsCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ client_labels }},
+        datasets: [{
+            label: 'Profit',
+            data: {{ client_profits }},
+            backgroundColor: 'rgba(20, 184, 166, 0.7)',
+            borderColor: '#14b8a6',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        indexAxis: 'y',
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return '₹' + context.parsed.x.toLocaleString('en-IN');
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return '₹' + value.toLocaleString('en-IN');
+                    }
+                }
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

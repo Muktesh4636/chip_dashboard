@@ -1,0 +1,283 @@
+{% extends "core/base.html" %}
+
+{% block title %}Monthly Report · Broker Portal{% endblock %}
+{% block page_title %}Monthly Report{% endblock %}
+{% block page_subtitle %}{{ month_start|date:"F Y" }}{% endblock %}
+
+{% block content %}
+<!-- Chart.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <form method="get" style="display: flex; gap: 12px; align-items: center;">
+        <label for="month" class="field-label" style="margin: 0;">Select Month:</label>
+        <input type="month" id="month" name="month" value="{{ month_start|date:'Y-m' }}" class="field-input" style="width: auto; max-width: 200px;">
+        <button type="submit" class="btn btn-primary">View Report</button>
+        <a href="{% url 'reports:export_csv' %}?type=all&start_date={{ month_start|date:'Y-m-d' }}&end_date={{ month_end|date:'Y-m-d' }}" class="btn">Export CSV</a>
+    </form>
+</div>
+
+<div class="card-grid">
+    <div class="card">
+        <div class="card-title">Total Turnover</div>
+        <div class="card-value">₹ {{ total_turnover|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Your Profit</div>
+        <div class="card-value positive">₹ {{ your_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Your Loss</div>
+        <div class="card-value negative">₹ {{ your_loss|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Net Profit</div>
+        <div class="card-value {% if net_profit >= 0 %}positive{% else %}negative{% endif %}">₹ {{ net_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Company Profit</div>
+        <div class="card-value">₹ {{ company_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Avg Daily Turnover</div>
+        <div class="card-value">₹ {{ avg_daily_turnover|floatformat:2|default:0 }}</div>
+    </div>
+</div>
+
+<!-- Analysis Section -->
+<div style="margin-top: 24px; background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Analysis</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+        <div>
+            <div style="font-size: 14px; color: var(--muted); margin-bottom: 4px;">Total Transactions</div>
+            <div style="font-size: 24px; font-weight: 600;">{{ transactions|length }}</div>
+        </div>
+        <div>
+            <div style="font-size: 14px; color: var(--muted); margin-bottom: 4px;">Profit Margin</div>
+            <div style="font-size: 24px; font-weight: 600;">{% if profit_margin %}{{ profit_margin|floatformat:2 }}%{% else %}0%{% endif %}</div>
+        </div>
+        <div>
+            <div style="font-size: 14px; color: var(--muted); margin-bottom: 4px;">Net Profit</div>
+            <div style="font-size: 24px; font-weight: 600; color: {% if net_profit >= 0 %}#16a34a{% else %}#dc2626{% endif %};">
+                {% if net_profit >= 0 %}+₹{{ net_profit|floatformat:2 }}{% else %}₹{{ net_profit|floatformat:2 }}{% endif %}
+            </div>
+        </div>
+        <div>
+            <div style="font-size: 14px; color: var(--muted); margin-bottom: 4px;">Average Daily Turnover</div>
+            <div style="font-size: 24px; font-weight: 600;">₹ {{ avg_daily_turnover|floatformat:2|default:0 }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- Weekly Breakdown Chart -->
+<div style="margin-top: 24px;">
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Weekly Breakdown ({{ month_start|date:"F Y" }})</h2>
+        <canvas id="weeklyChart" style="max-height: 400px;"></canvas>
+    </div>
+</div>
+
+<!-- Charts Grid -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-top: 24px;">
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Transaction Type Breakdown</h2>
+        <canvas id="typeChart" style="max-height: 300px;"></canvas>
+    </div>
+    
+    {% if client_labels %}
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Top Clients by Profit</h2>
+        <canvas id="clientChart" style="max-height: 300px;"></canvas>
+    </div>
+    {% endif %}
+</div>
+
+<div class="table-wrapper mt-4">
+    <div class="table-header">
+        <div>Transactions ({{ transactions|length }})</div>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Client</th>
+            <th>Exchange</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Your Share</th>
+            <th>Client Share</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for tx in transactions %}
+            <tr>
+                <td>{{ tx.date }}</td>
+                <td>{{ tx.client_exchange.client.name }}</td>
+                <td>{{ tx.client_exchange.exchange.name }}</td>
+                <td>{{ tx.get_transaction_type_display }}</td>
+                <td><strong>₹ {{ tx.amount }}</strong></td>
+                <td>₹ {{ tx.your_share_amount|default:0 }}</td>
+                <td>₹ {{ tx.client_share_amount|default:0 }}</td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="7">No transactions in this month.</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+// Weekly Breakdown Chart
+const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
+new Chart(weeklyCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ weekly_labels }},
+        datasets: [
+            {
+                label: 'Profit',
+                data: {{ weekly_profit }},
+                backgroundColor: 'rgba(22, 163, 74, 0.7)',
+                borderColor: '#16a34a',
+                borderWidth: 1
+            },
+            {
+                label: 'Loss',
+                data: {{ weekly_loss }},
+                backgroundColor: 'rgba(220, 38, 38, 0.7)',
+                borderColor: '#dc2626',
+                borderWidth: 1
+            },
+            {
+                label: 'Turnover',
+                data: {{ weekly_turnover }},
+                backgroundColor: 'rgba(20, 184, 166, 0.5)',
+                borderColor: '#14b8a6',
+                borderWidth: 1,
+                yAxisID: 'y1'
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': ₹' + context.parsed.y.toLocaleString('en-IN');
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return '₹' + value.toLocaleString('en-IN');
+                    }
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return '₹' + value.toLocaleString('en-IN');
+                    }
+                },
+                grid: {
+                    drawOnChartArea: false,
+                },
+            }
+        }
+    }
+});
+
+// Transaction Type Chart
+const typeCtx = document.getElementById('typeChart').getContext('2d');
+new Chart(typeCtx, {
+    type: 'doughnut',
+    data: {
+        labels: {{ type_labels }},
+        datasets: [{
+            data: {{ type_amounts }},
+            backgroundColor: {{ type_colors }},
+            borderWidth: 2,
+            borderColor: '#ffffff'
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                position: 'bottom',
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const label = context.label || '';
+                        const value = context.parsed || 0;
+                        return label + ': ₹' + value.toLocaleString('en-IN');
+                    }
+                }
+            }
+        }
+    }
+});
+
+{% if client_labels %}
+// Top Clients Chart
+const clientCtx = document.getElementById('clientChart').getContext('2d');
+new Chart(clientCtx, {
+    type: 'bar',
+    data: {
+        labels: {{ client_labels }},
+        datasets: [{
+            label: 'Profit',
+            data: {{ client_profits }},
+            backgroundColor: 'rgba(20, 184, 166, 0.7)',
+            borderColor: '#14b8a6',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        indexAxis: 'y',
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return '₹' + context.parsed.x.toLocaleString('en-IN');
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return '₹' + value.toLocaleString('en-IN');
+                    }
+                }
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

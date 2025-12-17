@@ -1,0 +1,41 @@
+{% extends "core/base.html" %}
+
+{% block title %}Add Exchange · Broker Portal{% endblock %}
+{% block page_title %}Add Exchange{% endblock %}
+{% block page_subtitle %}Create a new standalone exchange (A, B, C, D, etc.){% endblock %}
+
+{% block content %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); max-width: 600px;">
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-row">
+            <label class="field-label">Exchange Name *</label>
+            <input type="text" name="name" class="field-input" required placeholder="e.g., A, B, C, D, Binance, Coinbase">
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Exchange Code (Optional)</label>
+            <input type="text" name="code" class="field-input" placeholder="e.g., EXCH-A">
+        </div>
+        
+        <div class="form-row">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" name="is_active" checked>
+                <span class="field-label" style="margin: 0;">Active</span>
+            </label>
+        </div>
+        
+        <div style="background: #f9fafb; padding: 16px; border-radius: 6px; margin: 16px 0;">
+            <div style="font-size: 13px; color: var(--muted);">
+                <strong>Note:</strong> After creating the exchange, you can link it to clients with specific profit/loss percentages from the client detail page.
+            </div>
+        </div>
+        
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">Create Exchange</button>
+            <a href="{% url 'exchanges:list' %}" class="btn">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

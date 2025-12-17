@@ -1,0 +1,276 @@
+{% extends "core/base.html" %}
+
+{% block title %}{{ exchange.name }} Report · Broker Portal{% endblock %}
+{% block page_title %}{{ exchange.name }} Report{% endblock %}
+{% block page_subtitle %}All transactions for {{ exchange.name }}{% if exchange.code %} ({{ exchange.code }}){% endif %}{% endblock %}
+
+{% block content %}
+<!-- Chart.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<!-- Report Type Buttons -->
+<div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+    <a href="?report_type=daily" 
+       class="btn {% if report_type == 'daily' %}btn-primary{% endif %}" 
+       style="{% if report_type == 'daily' %}background: var(--accent); color: white;{% endif %}">
+        Daily Report
+    </a>
+    <a href="?report_type=weekly" 
+       class="btn {% if report_type == 'weekly' %}btn-primary{% endif %}" 
+       style="{% if report_type == 'weekly' %}background: var(--accent); color: white;{% endif %}">
+        Weekly Report
+    </a>
+    <a href="?report_type=monthly" 
+       class="btn {% if report_type == 'monthly' %}btn-primary{% endif %}" 
+       style="{% if report_type == 'monthly' %}background: var(--accent); color: white;{% endif %}">
+        Monthly Report
+    </a>
+</div>
+
+<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <div style="margin-bottom: 16px;">
+        <strong style="font-size: 16px; color: var(--text);">{{ date_range_label }}</strong>
+    </div>
+    <form method="get" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <input type="hidden" name="report_type" value="{{ report_type }}">
+        <label for="start_date" class="field-label" style="margin: 0;">Start Date (optional):</label>
+        <input type="date" id="start_date" name="start_date" value="{{ start_date|default:'' }}" class="field-input" style="width: auto; max-width: 200px;">
+        <label for="end_date" class="field-label" style="margin: 0;">End Date (optional):</label>
+        <input type="date" id="end_date" name="end_date" value="{{ end_date|default:'' }}" class="field-input" style="width: auto; max-width: 200px;">
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if start_date and end_date %}
+            <a href="{% url 'reports:export_csv' %}?type=all&start_date={{ start_date }}&end_date={{ end_date }}" class="btn">Export CSV</a>
+        {% endif %}
+    </form>
+</div>
+
+<div style="background: var(--accent-soft); padding: 16px; border-radius: 8px; margin-bottom: 24px; border: 1px solid var(--accent);">
+    <div style="font-size: 14px; margin-bottom: 8px;"><strong>Exchange:</strong> {{ exchange.name }}{% if exchange.code %} ({{ exchange.code }}){% endif %}</div>
+    <div style="font-size: 13px; color: var(--muted);">
+        This exchange may have different configurations for different clients. See individual client-exchange links for percentages.
+    </div>
+</div>
+
+<div class="card-grid">
+    <div class="card">
+        <div class="card-title">Total Turnover</div>
+        <div class="card-value">₹ {{ total_turnover|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Your Profit</div>
+        <div class="card-value positive">₹ {{ your_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Your Loss</div>
+        <div class="card-value negative">₹ {{ your_loss|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Net Profit</div>
+        <div class="card-value {% if net_profit >= 0 %}positive{% else %}negative{% endif %}">₹ {{ net_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Company Profit</div>
+        <div class="card-value">₹ {{ company_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Profit Margin</div>
+        <div class="card-value">{% if profit_margin %}{{ profit_margin|floatformat:2 }}%{% else %}0%{% endif %}</div>
+    </div>
+</div>
+
+<!-- Analysis Section -->
+<div style="margin-top: 24px; background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Analysis</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+        <div>
+            <div style="font-size: 14px; color: var(--muted); margin-bottom: 4px;">Total Transactions</div>
+            <div style="font-size: 24px; font-weight: 600;">{{ transactions|length }}</div>
+        </div>
+        <div>
+            <div style="font-size: 14px; color: var(--muted); margin-bottom: 4px;">Profit vs Loss</div>
+            <div style="font-size: 24px; font-weight: 600; color: {% if net_profit >= 0 %}#16a34a{% else %}#dc2626{% endif %};">
+                {% if net_profit >= 0 %}+₹{{ net_profit|floatformat:2 }}{% else %}₹{{ net_profit|floatformat:2 }}{% endif %}
+            </div>
+        </div>
+        <div>
+            <div style="font-size: 14px; color: var(--muted); margin-bottom: 4px;">Company Share</div>
+            <div style="font-size: 24px; font-weight: 600;">₹ {{ company_profit|default:0 }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts -->
+{% if has_type_data %}
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; margin-top: 24px;">
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Transaction Type Breakdown</h2>
+        <canvas id="typeChart" style="max-height: 300px;"></canvas>
+    </div>
+    
+    {% if has_client_data %}
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px;">Top Clients by Profit</h2>
+        <canvas id="clientChart" style="max-height: 300px;"></canvas>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="table-wrapper mt-4">
+    <div class="table-header">
+        <div>Transactions ({{ transactions|length }})</div>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Client</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Your Share</th>
+            <th>Client Share</th>
+            <th>Company Share</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for tx in transactions %}
+            <tr>
+                <td>{{ tx.date }}</td>
+                <td>
+                    <a href="{% url 'clients:detail' tx.client_exchange.client.pk %}" style="color: var(--accent); text-decoration: none;">
+                        {{ tx.client_exchange.client.name }}
+                    </a>
+                </td>
+                <td>
+                    {% if tx.transaction_type == 'PROFIT' %}
+                        <span class="badge badge-success">{{ tx.get_transaction_type_display }}</span>
+                    {% elif tx.transaction_type == 'LOSS' %}
+                        <span class="badge" style="background: #fee2e2; color: var(--danger);">{{ tx.get_transaction_type_display }}</span>
+                    {% elif tx.transaction_type == 'FUNDING' %}
+                        <span class="badge" style="background: #dbeafe; color: #1e40af;">{{ tx.get_transaction_type_display }}</span>
+                    {% else %}
+                        <span class="badge badge-muted">{{ tx.get_transaction_type_display }}</span>
+                    {% endif %}
+                </td>
+                <td><strong>₹ {{ tx.amount }}</strong></td>
+                <td>₹ {{ tx.your_share_amount|default:0 }}</td>
+                <td>₹ {{ tx.client_share_amount|default:0 }}</td>
+                <td>₹ {{ tx.company_share_amount|default:0 }}</td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="7">No transactions found for this exchange.</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if has_type_data %}
+<script>
+// Wait for Chart.js to load
+document.addEventListener('DOMContentLoaded', function() {
+    // Transaction Type Chart
+    const typeCtx = document.getElementById('typeChart');
+    if (typeCtx && typeof Chart !== 'undefined') {
+        try {
+            const typeLabels = {{ type_labels|safe }};
+            const typeAmounts = {{ type_amounts|safe }};
+            const typeColors = {{ type_colors|safe }};
+            
+            if (typeLabels && typeLabels.length > 0) {
+                new Chart(typeCtx.getContext('2d'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: typeLabels,
+                        datasets: [{
+                            data: typeAmounts,
+                            backgroundColor: typeColors,
+                            borderWidth: 2,
+                            borderColor: '#ffffff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.parsed || 0;
+                                        return label + ': ₹' + value.toLocaleString('en-IN');
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Error creating type chart:', e);
+        }
+    }
+
+    {% if has_client_data %}
+    // Top Clients Chart
+    const clientCtx = document.getElementById('clientChart');
+    if (clientCtx && typeof Chart !== 'undefined') {
+        try {
+            const clientLabels = {{ client_labels|safe }};
+            const clientProfits = {{ client_profits|safe }};
+            
+            if (clientLabels && clientLabels.length > 0) {
+                new Chart(clientCtx.getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: clientLabels,
+                        datasets: [{
+                            label: 'Profit',
+                            data: clientProfits,
+                            backgroundColor: 'rgba(20, 184, 166, 0.7)',
+                            borderColor: '#14b8a6',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        indexAxis: 'y',
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return '₹' + context.parsed.x.toLocaleString('en-IN');
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) {
+                                        return '₹' + value.toLocaleString('en-IN');
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Error creating client chart:', e);
+        }
+    }
+    {% endif %}
+});
+</script>
+{% endif %}
+{% endblock %}

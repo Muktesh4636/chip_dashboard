@@ -1,0 +1,63 @@
+{% extends "core/base.html" %}
+
+{% block title %}Clients · Broker Portal{% endblock %}
+{% block page_title %}Clients{% endblock %}
+{% block page_subtitle %}Manage clients and their exchanges{% endblock %}
+
+{% block page_actions %}
+    <a href="{% url 'clients:add' %}" class="btn btn-primary">Add Client</a>
+{% endblock %}
+
+{% block content %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <form method="get" style="display: flex; gap: 12px; align-items: center;">
+        <input type="text" name="search" value="{{ search_query }}" class="field-input" placeholder="Search clients by name or code..." style="flex: 1; max-width: 400px;">
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if search_query %}
+            <a href="{% url 'clients:list' %}" class="btn">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+<div class="table-wrapper">
+    <div class="table-header">
+        <span>All Clients</span>
+        <span class="pill">
+            <span>Total</span>
+            <span>{{ clients|length }}</span>
+        </span>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Code</th>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Exchanges</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for client in clients %}
+            <tr onclick="window.location='{% url 'clients:detail' client.pk %}'" style="cursor:pointer;">
+                <td>{% if client.code %}{{ client.code }}{% else %}<span style="color: var(--muted);">—</span>{% endif %}</td>
+                <td>{{ client.name }}</td>
+                <td>
+                    {% if client.is_active %}
+                        <span class="badge badge-success">Active</span>
+                    {% else %}
+                        <span class="badge badge-muted">Inactive</span>
+                    {% endif %}
+                </td>
+                <td>{{ client.exchanges.count }}</td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="4">No clients yet.</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+

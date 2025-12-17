@@ -1,0 +1,136 @@
+{% extends "core/base.html" %}
+
+{% block title %}{{ client.name }} Balance · Broker Portal{% endblock %}
+{% block page_title %}{{ client.name }} Balance Summary{% endblock %}
+{% block page_subtitle %}Exchange-wise balance breakdown for {{ client.name }}{% if client.code %} ({{ client.code }}){% endif %}{% endblock %}
+
+{% block page_actions %}
+<a href="{% url 'clients:detail' client.pk %}" class="btn">Back to Client</a>
+{% endblock %}
+
+{% block content %}
+<!-- Record Daily Balance Form -->
+<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <h2 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">
+        {% if edit_balance %}Edit Daily Balance{% else %}Record Daily Remaining Balance{% endif %}
+    </h2>
+    <form method="post" style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="record_balance">
+        {% if edit_balance %}
+            <input type="hidden" name="balance_id" value="{{ edit_balance.pk }}">
+        {% endif %}
+        <div>
+            <label class="field-label">Date *</label>
+            <input type="date" name="date" class="field-input" value="{% if edit_balance %}{{ edit_balance.date|date:'Y-m-d' }}{% else %}{{ today|date:'Y-m-d' }}{% endif %}" required style="width: auto;">
+        </div>
+        <div>
+            <label class="field-label">Remaining Balance (₹) *</label>
+            <input type="number" name="remaining_balance" class="field-input" step="0.01" min="0" value="{% if edit_balance %}{{ edit_balance.remaining_balance }}{% endif %}" required placeholder="0.00" style="width: auto; min-width: 150px;">
+        </div>
+        <div style="flex: 1; min-width: 200px;">
+            <label class="field-label">Note (Optional)</label>
+            <input type="text" name="note" class="field-input" value="{% if edit_balance %}{{ edit_balance.note }}{% endif %}" placeholder="Add a note about this balance">
+        </div>
+        <div>
+            <button type="submit" class="btn btn-primary">{% if edit_balance %}Update Balance{% else %}Record Balance{% endif %}</button>
+            {% if edit_balance %}
+                <a href="{% url 'clients:balance' client.pk %}" class="btn">Cancel</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+<!-- Daily Balance History -->
+{% if daily_balances %}
+<div class="table-wrapper mb-3">
+    <div class="table-header">
+        <div>Daily Balance History (Latest 30 records)</div>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Remaining Balance</th>
+            <th>Note</th>
+            <th>Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for balance in daily_balances %}
+            <tr>
+                <td><strong>{{ balance.date }}</strong></td>
+                <td><strong style="font-size: 18px; color: var(--accent);">₹ {{ balance.remaining_balance }}</strong></td>
+                <td>{{ balance.note|default:"—" }}</td>
+                <td>
+                    <a href="?edit_balance={{ balance.pk }}" class="btn btn-sm">Edit</a>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div class="card-grid">
+    <div class="card">
+        <div class="card-title">Total Exchanges</div>
+        <div class="card-value">{{ exchange_balances|length }}</div>
+    </div>
+</div>
+
+{% for balance in exchange_balances %}
+<div class="table-wrapper mt-3">
+    <div class="table-header">
+        <div><strong>{{ balance.exchange.name }}</strong> - Balance Summary</div>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Metric</th>
+            <th>Amount</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+            <td>Total Funding</td>
+            <td><strong>₹ {{ balance.total_funding }}</strong></td>
+        </tr>
+        <tr>
+            <td>Total Profit</td>
+            <td style="color: var(--success);">₹ {{ balance.total_profit }}</td>
+        </tr>
+        <tr>
+            <td>Total Loss</td>
+            <td style="color: var(--danger);">₹ {{ balance.total_loss }}</td>
+        </tr>
+        <tr>
+            <td><strong>Client Net Balance</strong></td>
+            <td><strong style="color: {% if balance.client_net >= 0 %}var(--success){% else %}var(--danger){% endif %};">₹ {{ balance.client_net }}</strong></td>
+        </tr>
+        <tr>
+            <td><strong>Your Net Balance</strong></td>
+            <td><strong style="color: {% if balance.you_net >= 0 %}var(--success){% else %}var(--danger){% endif %};">₹ {{ balance.you_net }}</strong></td>
+        </tr>
+        <tr>
+            <td>Pending: Client Owes You</td>
+            <td style="color: var(--danger);">₹ {{ balance.pending_client_owes }}</td>
+        </tr>
+        <tr>
+            <td>Pending: You Owe Client</td>
+            <td style="color: var(--success);">₹ {{ balance.pending_you_owe }}</td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+{% endfor %}
+
+{% if exchange_balances|length == 0 %}
+<div class="table-wrapper mt-3">
+    <div style="padding: 40px; text-align: center; color: var(--muted);">
+        No exchanges configured for this client yet.
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+

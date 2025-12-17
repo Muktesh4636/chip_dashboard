@@ -1,0 +1,35 @@
+{% extends "core/base.html" %}
+
+{% block title %}Edit Exchange · Broker Portal{% endblock %}
+{% block page_title %}Edit Exchange{% endblock %}
+{% block page_subtitle %}{{ exchange.name }}{% endblock %}
+
+{% block content %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); max-width: 600px;">
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-row">
+            <label class="field-label">Exchange Name *</label>
+            <input type="text" name="name" class="field-input" value="{{ exchange.name }}" required>
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Exchange Code (Optional)</label>
+            <input type="text" name="code" class="field-input" value="{{ exchange.code|default:'' }}" placeholder="e.g., EXCH-A">
+        </div>
+        
+        <div class="form-row">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" name="is_active" {% if exchange.is_active %}checked{% endif %}>
+                <span class="field-label" style="margin: 0;">Active</span>
+            </label>
+        </div>
+        
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+            <a href="{% url 'exchanges:list' %}" class="btn">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

@@ -1,0 +1,130 @@
+{% extends "core/base.html" %}
+
+{% block title %}Dashboard · Broker Portal{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block page_subtitle %}Live overview of turnover, profit, and pending payments{% endblock %}
+
+{% block content %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <form method="get" id="dashboard-filter-form" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <input type="text" name="search" id="search-input" value="{{ search_query }}" class="field-input" placeholder="Quick search (client, exchange)..." style="width: auto; min-width: 200px;">
+        <select name="client" class="field-input" style="width: auto;" onchange="this.form.submit()">
+            <option value="">All Clients</option>
+            {% for client in all_clients %}
+                <option value="{{ client.pk }}" {% if selected_client == client.pk %}selected{% endif %}>{{ client.name }}</option>
+            {% endfor %}
+        </select>
+        <select name="exchange" class="field-input" style="width: auto;" onchange="this.form.submit()">
+            <option value="">All Exchanges</option>
+            {% for exchange in all_exchanges %}
+                <option value="{{ exchange.pk }}" {% if selected_exchange == exchange.pk %}selected{% endif %}>{{ exchange.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if search_query or selected_client or selected_exchange %}
+            <a href="{% url 'dashboard' %}" class="btn">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+<script>
+// Auto-search functionality - submit form as user types
+(function() {
+    const searchInput = document.getElementById('search-input');
+    const form = document.getElementById('dashboard-filter-form');
+    let searchTimeout;
+    
+    if (searchInput && form) {
+        searchInput.addEventListener('input', function() {
+            // Clear previous timeout
+            clearTimeout(searchTimeout);
+            
+            // Set new timeout to submit after user stops typing for 500ms
+            searchTimeout = setTimeout(function() {
+                form.submit();
+            }, 500);
+        });
+        
+        // Also submit on Enter key
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                clearTimeout(searchTimeout);
+                form.submit();
+            }
+        });
+    }
+})();
+</script>
+<div class="card-grid">
+    <div class="card">
+        <div class="card-title">Total Turnover</div>
+        <div class="card-value">₹ {{ total_turnover|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Your Profit</div>
+        <div class="card-value positive">₹ {{ your_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Company Profit</div>
+        <div class="card-value">₹ {{ company_profit|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Clients Owe You</div>
+        <div class="card-value negative">₹ {{ pending_clients_owe|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">You Owe Clients</div>
+        <div class="card-value negative">₹ {{ pending_you_owe_clients|default:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Active Clients</div>
+        <div class="card-value">{{ active_clients_count }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Total Exchanges</div>
+        <div class="card-value">{{ total_exchanges_count }}</div>
+    </div>
+</div>
+
+<div class="table-wrapper mt-3">
+    <div class="table-header">
+        <div>Today: {{ today }}</div>
+        <div class="pill">
+            <span>Recent transactions</span>
+            <span>{{ recent_transactions|length }}</span>
+        </div>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Client</th>
+            <th>Exchange</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Your Share</th>
+            <th>Client Share</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for tx in recent_transactions %}
+            <tr>
+                <td>{{ tx.date }}</td>
+                <td>{{ tx.client_exchange.client.name }}</td>
+                <td>{{ tx.client_exchange.exchange.name }}</td>
+                <td>{{ tx.get_transaction_type_display }}</td>
+                <td>₹ {{ tx.amount }}</td>
+                <td>₹ {{ tx.your_share_amount }}</td>
+                <td>₹ {{ tx.client_share_amount }}</td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="7">No transactions yet.</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+

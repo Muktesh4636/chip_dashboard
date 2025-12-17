@@ -1,0 +1,58 @@
+{% extends "core/base.html" %}
+
+{% block title %}Add Transaction · Broker Portal{% endblock %}
+{% block page_title %}Add Transaction{% endblock %}
+{% block page_subtitle %}Record a new transaction with auto-calculated shares{% endblock %}
+
+{% block content %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); max-width: 700px;">
+    <form method="post" id="transaction-form">
+        {% csrf_token %}
+        <div class="form-row">
+            <label class="field-label">Client-Exchange *</label>
+            <select name="client_exchange" id="client-exchange-select" class="field-input" required>
+                <option value="">Select a client-exchange combination</option>
+                {% for ce in client_exchanges %}
+                    <option value="{{ ce.pk }}">{{ ce.client.name }} - {{ ce.exchange.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Date *</label>
+            <input type="date" name="date" class="field-input" value="{{ today|date:'Y-m-d' }}" required>
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Transaction Type *</label>
+            <select name="transaction_type" class="field-input" required>
+                <option value="FUNDING">Funding (You give money to client)</option>
+                <option value="PROFIT">Profit</option>
+                <option value="LOSS">Loss</option>
+                <option value="SETTLEMENT">Settlement / Payout</option>
+            </select>
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Amount (₹) *</label>
+            <input type="number" name="amount" class="field-input" step="0.01" min="0" required placeholder="0.00">
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Note</label>
+            <textarea name="note" class="field-input" rows="3" placeholder="Optional note about this transaction"></textarea>
+        </div>
+        
+        <div style="background: #f9fafb; padding: 16px; border-radius: 6px; margin: 16px 0;">
+            <div style="font-size: 13px; color: var(--muted); margin-bottom: 8px;">Shares will be auto-calculated based on exchange percentages</div>
+        </div>
+        
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">Create Transaction</button>
+            <a href="{% url 'transactions:list' %}" class="btn">Cancel</a>
+        </div>
+    </form>
+</div>
+
+{% endblock %}
+

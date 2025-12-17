@@ -1,0 +1,58 @@
+{% extends "core/base.html" %}
+
+{% block title %}Edit Transaction · Broker Portal{% endblock %}
+{% block page_title %}Edit Transaction{% endblock %}
+{% block page_subtitle %}Update transaction details{% endblock %}
+
+{% block content %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); max-width: 700px;">
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-row">
+            <label class="field-label">Client-Exchange</label>
+            <input type="text" class="field-input" value="{{ transaction.client_exchange.client.name }} - {{ transaction.client_exchange.exchange.name }}" disabled>
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Date *</label>
+            <input type="date" name="date" class="field-input" value="{{ transaction.date|date:'Y-m-d' }}" required>
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Transaction Type *</label>
+            <select name="transaction_type" class="field-input" required>
+                <option value="FUNDING" {% if transaction.transaction_type == 'FUNDING' %}selected{% endif %}>Funding (You give money to client)</option>
+                <option value="PROFIT" {% if transaction.transaction_type == 'PROFIT' %}selected{% endif %}>Profit</option>
+                <option value="LOSS" {% if transaction.transaction_type == 'LOSS' %}selected{% endif %}>Loss</option>
+                <option value="SETTLEMENT" {% if transaction.transaction_type == 'SETTLEMENT' %}selected{% endif %}>Settlement / Payout</option>
+            </select>
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Amount (₹) *</label>
+            <input type="number" name="amount" class="field-input" step="0.01" min="0" value="{{ transaction.amount }}" required>
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Note</label>
+            <textarea name="note" class="field-input" rows="3">{{ transaction.note }}</textarea>
+        </div>
+        
+        <div style="background: #f9fafb; padding: 16px; border-radius: 6px; margin: 16px 0;">
+            <div style="font-size: 13px; color: var(--muted); margin-bottom: 8px;">Current Shares:</div>
+            <div style="font-size: 14px;">
+                <div>Your Share: ₹ {{ transaction.your_share_amount }}</div>
+                <div>Client Share: ₹ {{ transaction.client_share_amount }}</div>
+                <div>Company Share: ₹ {{ transaction.company_share_amount }}</div>
+            </div>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 8px;">Shares will be recalculated on save</div>
+        </div>
+        
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+            <a href="{% url 'transactions:list' %}" class="btn">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

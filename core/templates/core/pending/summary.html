@@ -1,0 +1,174 @@
+{% extends "core/base.html" %}
+
+{% block title %}Pending Payments · Broker Portal{% endblock %}
+{% block page_title %}Pending Payments{% endblock %}
+{% block page_subtitle %}Two separate sections: Clients owe you vs You owe clients. Use time-travel to see past dates.{% endblock %}
+
+{% block content %}
+<!-- Report Type Buttons -->
+<div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
+    <a href="?report_type=daily{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}" 
+       class="btn {% if report_type == 'daily' %}btn-primary{% endif %}" 
+       style="{% if report_type == 'daily' %}background: var(--accent); color: white;{% endif %}">
+        Daily Report
+    </a>
+    <a href="?report_type=weekly{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}" 
+       class="btn {% if report_type == 'weekly' %}btn-primary{% endif %}" 
+       style="{% if report_type == 'weekly' %}background: var(--accent); color: white;{% endif %}">
+        Weekly Report
+    </a>
+    <a href="?report_type=monthly{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}" 
+       class="btn {% if report_type == 'monthly' %}btn-primary{% endif %}" 
+       style="{% if report_type == 'monthly' %}background: var(--accent); color: white;{% endif %}">
+        Monthly Report
+    </a>
+</div>
+
+<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <div style="margin-bottom: 16px;">
+        <strong style="font-size: 16px; color: var(--text);">{{ date_range_label }}</strong>
+    </div>
+    <form method="get" id="date-form" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <input type="hidden" name="report_type" value="{{ report_type }}">
+        <input type="hidden" id="section-param" name="section" value="{{ request.GET.section|default:'' }}">
+        <label for="date" class="field-label" style="margin: 0;">View as of specific date (optional):</label>
+        <input type="date" id="date" name="date" value="{{ as_of|date:'Y-m-d' }}" class="field-input" style="width: auto; max-width: 200px;">
+        <button type="submit" class="btn btn-primary">Update</button>
+        {% if as_of|date:'Y-m-d' != today|date:'Y-m-d' %}
+            <a href="?report_type={{ report_type }}{% if request.GET.section %}&section={{ request.GET.section }}{% endif %}" class="btn">Reset to Today</a>
+        {% endif %}
+    </form>
+</div>
+
+<!-- Tab Headers -->
+<div style="display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 2px solid var(--border);">
+    <button onclick="showSection('clients-owe')" id="tab-clients-owe" class="tab-button active" style="padding: 12px 24px; background: var(--danger); color: white; border: none; border-radius: 8px 8px 0 0; font-size: 16px; font-weight: 600; cursor: pointer;">
+        Clients Owe You
+    </button>
+    <button onclick="showSection('you-owe')" id="tab-you-owe" class="tab-button" style="padding: 12px 24px; background: var(--muted); color: white; border: none; border-radius: 8px 8px 0 0; font-size: 16px; font-weight: 600; cursor: pointer;">
+        You Owe Clients
+    </button>
+</div>
+
+<div id="section-clients-owe" class="section-content" style="display: block;">
+    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--danger);">
+        Clients Owe You
+    </h2>
+    <div class="table-wrapper">
+        <div class="table-header">
+            <div>Total clients: {{ clients_owe|length }}</div>
+        </div>
+        <table>
+            <thead>
+            <tr>
+                <th>Client Code</th>
+                <th>Client Name</th>
+                <th>Total Owed</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for item in clients_owe %}
+                <tr>
+                    <td><strong>{% if item.client_exchange__client__code %}{{ item.client_exchange__client__code }}{% else %}<span style="color: var(--muted);">—</span>{% endif %}</strong></td>
+                    <td>
+                        <a href="{% url 'clients:detail' item.client_exchange__client__id %}" style="color: var(--accent); text-decoration: none;">
+                            {{ item.client_exchange__client__name }}
+                        </a>
+                    </td>
+                    <td><strong style="color: var(--danger);">₹ {{ item.total_owed|default:0 }}</strong></td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="3">No clients owe you for the selected period.</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="section-you-owe" class="section-content" style="display: none;">
+    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px; color: var(--success);">
+        You Owe Clients
+    </h2>
+    <div class="table-wrapper">
+        <div class="table-header">
+            <div>Total clients: {{ you_owe|length }}</div>
+        </div>
+        <table>
+            <thead>
+            <tr>
+                <th>Client Code</th>
+                <th>Client Name</th>
+                <th>Total Owed</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for item in you_owe %}
+                <tr>
+                    <td><strong>{% if item.client_exchange__client__code %}{{ item.client_exchange__client__code }}{% else %}<span style="color: var(--muted);">—</span>{% endif %}</strong></td>
+                    <td>
+                        <a href="{% url 'clients:detail' item.client_exchange__client__id %}" style="color: var(--accent); text-decoration: none;">
+                            {{ item.client_exchange__client__name }}
+                        </a>
+                    </td>
+                    <td><strong style="color: var(--success);">₹ {{ item.total_owed|default:0 }}</strong></td>
+                </tr>
+            {% empty %}
+                <tr>
+                    <td colspan="3">You don't owe any clients for the selected period.</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    function showSection(sectionId) {
+        // Hide all sections
+        document.querySelectorAll('.section-content').forEach(section => {
+            section.style.display = 'none';
+        });
+        
+        // Remove active class from all tabs
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.style.background = 'var(--muted)';
+        });
+        
+        // Show selected section
+        document.getElementById('section-' + sectionId).style.display = 'block';
+        
+        // Add active class to clicked tab
+        const activeButton = document.getElementById('tab-' + sectionId);
+        if (sectionId === 'clients-owe') {
+            activeButton.style.background = 'var(--danger)';
+        } else {
+            activeButton.style.background = 'var(--success)';
+        }
+        
+        // Update URL without reloading page
+        const url = new URL(window.location);
+        url.searchParams.set('section', sectionId);
+        // Preserve report_type if it exists
+        const reportType = url.searchParams.get('report_type') || 'daily';
+        url.searchParams.set('report_type', reportType);
+        window.history.pushState({}, '', url);
+        
+        // Update hidden input in form
+        document.getElementById('section-param').value = sectionId;
+    }
+    
+    // Set initial active tab based on URL parameter or default to first
+    window.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const section = urlParams.get('section');
+        if (section === 'you-owe') {
+            showSection('you-owe');
+        } else {
+            showSection('clients-owe');
+        }
+    });
+</script>
+{% endblock %}
+

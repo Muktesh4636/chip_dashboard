@@ -1,0 +1,94 @@
+{% extends "core/base.html" %}
+
+{% block title %}Edit Exchange Link · Broker Portal{% endblock %}
+{% block page_title %}Edit Exchange Configuration{% endblock %}
+{% block page_subtitle %}{{ client_exchange.exchange.name }} for {{ client_exchange.client.name }}{% endblock %}
+
+{% block content %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); max-width: 600px;">
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-row">
+            <label class="field-label">Exchange 
+                {% if can_edit_exchange %}
+                    <span style="color: var(--success); font-weight: normal;">(Editable - Created {{ days_since_creation }} day{{ days_since_creation|pluralize }} ago)</span>
+                {% else %}
+                    <span style="color: var(--muted); font-weight: normal;">(Cannot be changed)</span>
+                {% endif %}
+            </label>
+            {% if can_edit_exchange %}
+                <select name="exchange" class="field-input" required>
+                    {% for exchange in exchanges %}
+                        <option value="{{ exchange.pk }}" {% if exchange.pk == client_exchange.exchange.pk %}selected{% endif %}>
+                            {{ exchange.name }}{% if exchange.code %} ({{ exchange.code }}){% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+                <div style="font-size: 12px; color: var(--success); margin-top: 4px;">
+                    You can change the exchange within 10 days of creation. {{ days_remaining }} day{{ days_remaining|pluralize }} remaining.
+                </div>
+            {% else %}
+                <input type="text" class="field-input" value="{{ client_exchange.exchange.name }}{% if client_exchange.exchange.code %} ({{ client_exchange.exchange.code }}){% endif %}" disabled style="background-color: #f3f4f6; color: #6b7280; cursor: not-allowed; opacity: 0.7;">
+                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">
+                    Exchange cannot be modified after 10 days from creation. To change the exchange, delete this link and create a new one.
+                </div>
+            {% endif %}
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">My Share % (Your share of profits) *</label>
+            <input type="number" name="my_share_pct" id="my-share-input" class="field-input" step="0.01" min="0" max="100" value="{{ client_exchange.my_share_pct }}" required oninput="validateCompanyShare()">
+            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your percentage share of profits</div>
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Company Share % (From your profit) *</label>
+            <input type="number" name="company_share_pct" id="company-share-input" class="field-input" step="0.01" min="0" max="100" value="{{ client_exchange.company_share_pct }}" required oninput="validateCompanyShare()">
+            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Must be less than your share</div>
+            <div id="validation-message" style="font-size: 12px; color: var(--danger); margin-top: 4px; display: none;"></div>
+            {% if error %}
+                <div style="font-size: 12px; color: var(--danger); margin-top: 4px;">{{ error }}</div>
+            {% endif %}
+        </div>
+        
+        <div class="form-row">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" name="is_active" {% if client_exchange.is_active %}checked{% endif %}>
+                <span class="field-label" style="margin: 0;">Active</span>
+            </label>
+        </div>
+        
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button type="submit" class="btn btn-primary" id="submit-btn">Save Changes</button>
+            <a href="{% url 'clients:detail' client_exchange.client.pk %}" class="btn">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<script>
+function validateCompanyShare() {
+    const myShare = parseFloat(document.getElementById('my-share-input').value) || 0;
+    const companyShare = parseFloat(document.getElementById('company-share-input').value) || 0;
+    const messageDiv = document.getElementById('validation-message');
+    const submitBtn = document.getElementById('submit-btn');
+    
+    if (companyShare > 0 && myShare > 0) {
+        if (companyShare >= myShare) {
+            messageDiv.textContent = 'Company share must be less than your share';
+            messageDiv.style.display = 'block';
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.5';
+        } else {
+            messageDiv.style.display = 'none';
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '1';
+        }
+    } else {
+        messageDiv.style.display = 'none';
+        submitBtn.disabled = false;
+        submitBtn.style.opacity = '1';
+    }
+}
+</script>
+{% endblock %}
+

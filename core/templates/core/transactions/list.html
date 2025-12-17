@@ -1,0 +1,99 @@
+{% extends "core/base.html" %}
+
+{% block title %}Transactions · Broker Portal{% endblock %}
+{% block page_title %}Transactions{% endblock %}
+{% block page_subtitle %}All transaction history across all clients and exchanges{% endblock %}
+
+{% block page_actions %}
+<a href="{% url 'transactions:add' %}" class="btn btn-primary">Add Transaction</a>
+{% endblock %}
+
+{% block content %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <form method="get" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <input type="text" name="search" value="{{ search_query }}" class="field-input" placeholder="Search..." style="width: auto; min-width: 200px;">
+        <select name="client" class="field-input" style="width: auto;">
+            <option value="">All Clients</option>
+            {% for client in all_clients %}
+                <option value="{{ client.pk }}" {% if selected_client == client.pk %}selected{% endif %}>{{ client.name }}</option>
+            {% endfor %}
+        </select>
+        <select name="exchange" class="field-input" style="width: auto;">
+            <option value="">All Exchanges</option>
+            {% for exchange in all_exchanges %}
+                <option value="{{ exchange.pk }}" {% if selected_exchange == exchange.pk %}selected{% endif %}>{{ exchange.name }}</option>
+            {% endfor %}
+        </select>
+        <select name="type" class="field-input" style="width: auto;">
+            <option value="">All Types</option>
+            <option value="FUNDING" {% if selected_type == 'FUNDING' %}selected{% endif %}>Funding</option>
+            <option value="PROFIT" {% if selected_type == 'PROFIT' %}selected{% endif %}>Profit</option>
+            <option value="LOSS" {% if selected_type == 'LOSS' %}selected{% endif %}>Loss</option>
+            <option value="SETTLEMENT" {% if selected_type == 'SETTLEMENT' %}selected{% endif %}>Settlement</option>
+        </select>
+        <input type="date" name="start_date" value="{{ start_date }}" class="field-input" style="width: auto;" placeholder="Start Date">
+        <input type="date" name="end_date" value="{{ end_date }}" class="field-input" style="width: auto;" placeholder="End Date">
+        <button type="submit" class="btn btn-primary">Search</button>
+        {% if search_query or selected_client or selected_exchange or selected_type or start_date or end_date %}
+            <a href="{% url 'transactions:list' %}" class="btn">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+<div class="table-wrapper">
+    <div class="table-header">
+        <div>Showing latest {{ transactions|length }} transactions</div>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Client</th>
+            <th>Exchange</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Your Share</th>
+            <th>Client Share</th>
+            <th>Company Share</th>
+            <th>Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for tx in transactions %}
+            <tr>
+                <td>{{ tx.date }}</td>
+                <td>
+                    <a href="{% url 'clients:detail' tx.client_exchange.client.pk %}" style="color: var(--accent); text-decoration: none;">
+                        {{ tx.client_exchange.client.name }}
+                    </a>
+                </td>
+                <td>{{ tx.client_exchange.exchange.name }}</td>
+                <td>
+                    {% if tx.transaction_type == 'PROFIT' %}
+                        <span class="badge badge-success">{{ tx.get_transaction_type_display }}</span>
+                    {% elif tx.transaction_type == 'LOSS' %}
+                        <span class="badge" style="background: #fee2e2; color: var(--danger);">{{ tx.get_transaction_type_display }}</span>
+                    {% elif tx.transaction_type == 'FUNDING' %}
+                        <span class="badge" style="background: #dbeafe; color: #1e40af;">{{ tx.get_transaction_type_display }}</span>
+                    {% else %}
+                        <span class="badge badge-muted">{{ tx.get_transaction_type_display }}</span>
+                    {% endif %}
+                </td>
+                <td><strong>₹ {{ tx.amount }}</strong></td>
+                <td>₹ {{ tx.your_share_amount|default:0 }}</td>
+                <td>₹ {{ tx.client_share_amount|default:0 }}</td>
+                <td>₹ {{ tx.company_share_amount|default:0 }}</td>
+                <td>
+                    <a href="{% url 'transactions:edit' tx.pk %}" class="btn btn-sm">Edit</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr>
+                <td colspan="8">No transactions recorded yet.</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
