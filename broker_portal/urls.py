@@ -22,7 +22,9 @@ from core import views as core_views
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", core_views.dashboard, name="dashboard"),
-    path("clients/", include(("core.urls.clients", "clients"), namespace="clients")),
+    path("clients/", include(("core.urls.clients", "clients"), namespace="clients")),  # Legacy - all clients
+    path("company-clients/", include(("core.urls.company_clients", "company_clients"), namespace="company_clients")),
+    path("my-clients/", include(("core.urls.my_clients", "my_clients"), namespace="my_clients")),
     path("exchanges/", include(("core.urls.exchanges", "exchanges"), namespace="exchanges")),
     path("transactions/", include(("core.urls.transactions", "transactions"), namespace="transactions")),
     path("pending/", include(("core.urls.pending", "pending"), namespace="pending")),

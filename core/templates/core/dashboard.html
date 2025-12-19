@@ -85,46 +85,6 @@
         <div class="card-value">{{ total_exchanges_count }}</div>
     </div>
 </div>
-
-<div class="table-wrapper mt-3">
-    <div class="table-header">
-        <div>Today: {{ today }}</div>
-        <div class="pill">
-            <span>Recent transactions</span>
-            <span>{{ recent_transactions|length }}</span>
-        </div>
-    </div>
-    <table>
-        <thead>
-        <tr>
-            <th>Date</th>
-            <th>Client</th>
-            <th>Exchange</th>
-            <th>Type</th>
-            <th>Amount</th>
-            <th>Your Share</th>
-            <th>Client Share</th>
-        </tr>
-        </thead>
-        <tbody>
-        {% for tx in recent_transactions %}
-            <tr>
-                <td>{{ tx.date }}</td>
-                <td>{{ tx.client_exchange.client.name }}</td>
-                <td>{{ tx.client_exchange.exchange.name }}</td>
-                <td>{{ tx.get_transaction_type_display }}</td>
-                <td>₹ {{ tx.amount }}</td>
-                <td>₹ {{ tx.your_share_amount }}</td>
-                <td>₹ {{ tx.client_share_amount }}</td>
-            </tr>
-        {% empty %}
-            <tr>
-                <td colspan="7">No transactions yet.</td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-</div>
 {% endblock %}
 
 

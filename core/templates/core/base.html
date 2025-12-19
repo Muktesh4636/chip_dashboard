@@ -41,10 +41,10 @@
             position: fixed;
             left: 0;
             top: 0;
-            width: 230px;
+            width: 280px;
             height: 100vh;
             background: var(--sidebar-bg);
-            padding: 20px 16px;
+            padding: 20px 20px;
             display: flex;
             flex-direction: column;
             color: #e5e7eb;
@@ -54,7 +54,7 @@
         }
 
         body.sidebar-collapsed .sidebar {
-            transform: translateX(-240px);
+            transform: translateX(-290px);
         }
 
         .brand {
@@ -142,7 +142,7 @@
 
         .main {
             flex: 1;
-            margin-left: 230px;
+            margin-left: 280px;
             padding: 18px 22px;
             overflow-x: hidden;
             transition: margin-left 0.2s ease;
@@ -382,9 +382,15 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a href="{% url 'clients:list' %}" class="nav-link {% if request.resolver_match.namespace == 'clients' %}active{% endif %}">
+                <a href="{% url 'company_clients:list' %}" class="nav-link {% if request.resolver_match.namespace == 'company_clients' %}active{% endif %}">
+                    <span class="nav-icon">🏢</span>
+                    <span>Company Clients</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="{% url 'my_clients:list' %}" class="nav-link {% if request.resolver_match.namespace == 'my_clients' %}active{% endif %}">
                     <span class="nav-icon">👤</span>
-                    <span>Clients</span>
+                    <span>My Clients</span>
                 </a>
             </li>
             <li class="nav-item">

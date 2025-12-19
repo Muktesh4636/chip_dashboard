@@ -1,126 +1,97 @@
 {% extends "core/base.html" %}
 
 {% block title %}{{ client.name }} Balance · Broker Portal{% endblock %}
-{% block page_title %}{{ client.name }} Balance Summary{% endblock %}
-{% block page_subtitle %}Exchange-wise balance breakdown for {{ client.name }}{% if client.code %} ({{ client.code }}){% endif %}{% endblock %}
+{% block page_title %}{{ client.name }} Balance{% endblock %}
+{% block page_subtitle %}{% if client.code %}Code: {{ client.code }} · {% endif %}{% if selected_exchange_name %}Exchange: {{ selected_exchange_name }}{% else %}All Exchanges{% endif %}{% endblock %}
 
 {% block page_actions %}
-<a href="{% url 'clients:detail' client.pk %}" class="btn">Back to Client</a>
+<a href="{% if client_type == 'company' %}{% url 'company_clients:detail' client.pk %}{% else %}{% url 'my_clients:detail' client.pk %}{% endif %}" class="btn">Back to Client</a>
 {% endblock %}
 
 {% block content %}
-<!-- Record Daily Balance Form -->
+<!-- Exchange Filter -->
+{% if all_client_exchanges|length > 1 %}
 <div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
-    <h2 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">
+    <form method="get" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <label class="field-label" style="margin: 0;">Filter by Exchange:</label>
+        <select name="exchange" class="field-input" style="width: auto;" onchange="this.form.submit()">
+            <option value="">All Exchanges</option>
+            {% for ce in all_client_exchanges %}
+                <option value="{{ ce.pk }}" {% if selected_exchange_id == ce.pk %}selected{% endif %}>
+                    {{ ce.exchange.name }}{% if ce.exchange.code %} ({{ ce.exchange.code }}){% endif %}
+                </option>
+            {% endfor %}
+        </select>
+        {% if selected_exchange_id %}
+            <a href="{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}" class="btn">Clear</a>
+        {% endif %}
+    </form>
+</div>
+{% endif %}
+
+<!-- Record Balance Form -->
+<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <h2 style="font-size: 18px; font-weight: 600; margin-bottom: 20px;">
         {% if edit_balance %}Edit Daily Balance{% else %}Record Daily Remaining Balance{% endif %}
     </h2>
-    <form method="post" style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+    <form method="post">
         {% csrf_token %}
         <input type="hidden" name="action" value="record_balance">
         {% if edit_balance %}
             <input type="hidden" name="balance_id" value="{{ edit_balance.pk }}">
         {% endif %}
-        <div>
-            <label class="field-label">Exchange *</label>
-            <select name="client_exchange" id="form-exchange-select" class="field-input" required style="width: auto; min-width: 200px;" {% if edit_balance %}disabled{% endif %} onchange="filterByExchange(this.value)">
-                <option value="">Select Exchange</option>
-                {% for ce in all_client_exchanges %}
-                    <option value="{{ ce.pk }}" {% if edit_balance and ce.pk == edit_balance.client_exchange.pk %}selected{% elif selected_exchange_id == ce.pk %}selected{% endif %}>
-                        {{ ce.exchange.name }}{% if ce.exchange.code %} ({{ ce.exchange.code }}){% endif %}
-                    </option>
-                {% endfor %}
-            </select>
-            {% if edit_balance %}
-                <input type="hidden" name="client_exchange" value="{{ edit_balance.client_exchange.pk }}">
-            {% endif %}
-            <div id="balance-loading" style="display: none; font-size: 12px; color: var(--accent); margin-top: 4px;">Loading balance data...</div>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 16px;">
+            <div>
+                <label class="field-label">Exchange *</label>
+                <select name="client_exchange" id="form-exchange-select" class="field-input" required {% if edit_balance %}disabled{% endif %} onchange="loadExchangeBalanceData(this.value)">
+                    <option value="">Select Exchange</option>
+                    {% for ce in all_client_exchanges %}
+                        <option value="{{ ce.pk }}" {% if edit_balance and ce.pk == edit_balance.client_exchange.pk %}selected{% elif selected_exchange_id == ce.pk %}selected{% endif %}>
+                            {{ ce.exchange.name }}{% if ce.exchange.code %} ({{ ce.exchange.code }}){% endif %}
+                        </option>
+                    {% endfor %}
+                </select>
+                {% if edit_balance %}
+                    <input type="hidden" name="client_exchange" value="{{ edit_balance.client_exchange.pk }}">
+                {% endif %}
+                <div id="balance-loading" style="display: none; font-size: 12px; color: var(--accent); margin-top: 4px;">Loading...</div>
+            </div>
+            
+            <div>
+                <label class="field-label">Date *</label>
+                <input type="date" name="date" id="balance-date" class="field-input" value="{% if edit_balance %}{{ edit_balance.date|date:'Y-m-d' }}{% else %}{{ today|date:'Y-m-d' }}{% endif %}" required>
+            </div>
         </div>
-        <div>
-            <label class="field-label">Date *</label>
-            <input type="date" name="date" id="balance-date" class="field-input" value="{% if edit_balance %}{{ edit_balance.date|date:'Y-m-d' }}{% else %}{{ today|date:'Y-m-d' }}{% endif %}" required style="width: auto;">
-        </div>
-        <div>
+        
+        <div style="margin-bottom: 16px;">
             <label class="field-label">Remaining Balance (₹) *</label>
-            <input type="number" name="remaining_balance" id="balance-amount" class="field-input" step="0.01" min="0" value="{% if edit_balance %}{{ edit_balance.remaining_balance }}{% endif %}" required placeholder="0.00" style="width: auto; min-width: 150px;">
-            <div id="calculated-balance-hint" style="display: none; font-size: 12px; color: var(--muted); margin-top: 4px;"></div>
+            <input type="number" name="remaining_balance" id="balance-amount" class="field-input" step="0.01" min="0" value="{% if edit_balance %}{{ edit_balance.remaining_balance }}{% endif %}" required placeholder="0.00" style="max-width: 300px;">
+            <div id="calculated-balance-hint" style="display: none; font-size: 12px; color: var(--accent); margin-top: 6px; font-weight: 500;"></div>
         </div>
-        <div>
-            <label class="field-label">Extra Adjustment (₹)</label>
-            <input type="number" name="extra_adjustment" id="extra-adjustment" class="field-input" step="0.01" min="0" value="{% if edit_balance %}{{ edit_balance.extra_adjustment|default:0 }}{% else %}0{% endif %}" placeholder="0.00" style="width: auto; min-width: 150px;">
-            <div style="font-size: 11px; color: var(--muted); margin-top: 4px;">Extra money if exchange balance is low</div>
-        </div>
-        <div style="flex: 1; min-width: 200px;">
+        
+        <div style="margin-bottom: 16px;">
             <label class="field-label">Note (Optional)</label>
             <input type="text" name="note" id="balance-note" class="field-input" value="{% if edit_balance %}{{ edit_balance.note }}{% endif %}" placeholder="Add a note about this balance">
+            <div id="funding-hint" style="display: none; font-size: 12px; color: var(--success); margin-top: 6px; font-weight: 500;"></div>
         </div>
-        <div>
+        
+        <div style="display: flex; gap: 12px; align-items: center;">
             <button type="submit" class="btn btn-primary">{% if edit_balance %}Update Balance{% else %}Record Balance{% endif %}</button>
             {% if edit_balance %}
-                <a href="{% url 'clients:balance' client.pk %}" class="btn">Cancel</a>
+                <a href="{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}{% if selected_exchange_id %}?exchange={{ selected_exchange_id }}{% endif %}" class="btn">Cancel</a>
             {% endif %}
         </div>
     </form>
 </div>
 
-
-<!-- Daily Balance History Summary -->
-{% if all_daily_balances %}
-<div class="table-wrapper mb-3">
-    <div class="table-header">
-        <div>Daily Balance History{% if selected_exchange_name %} - {{ selected_exchange_name }}{% else %} - All Exchanges{% endif %} (Latest 30 records)</div>
-    </div>
-    <table>
-        <thead>
-        <tr>
-            <th>Date</th>
-            <th>Exchange</th>
-            <th>Remaining Balance</th>
-            <th>Note</th>
-            <th>Actions</th>
-        </tr>
-        </thead>
-        <tbody>
-            {% for balance in all_daily_balances %}
-            <tr class="daily-balance-row" data-exchange-id="{{ balance.client_exchange.pk }}">
-                <td><strong>{{ balance.date }}</strong></td>
-                <td><strong>{{ balance.client_exchange.exchange.name }}{% if balance.client_exchange.exchange.code %} ({{ balance.client_exchange.exchange.code }}){% endif %}</strong></td>
-                <td><strong style="font-size: 18px; color: var(--accent);">₹ {{ balance.remaining_balance }}</strong></td>
-                <td>{% if balance.extra_adjustment %}<strong style="color: var(--success);">+ ₹ {{ balance.extra_adjustment }}</strong>{% else %}—{% endif %}</td>
-                <td>{{ balance.note|default:"—" }}</td>
-                <td>
-                    <a href="?edit_balance={{ balance.pk }}" class="btn btn-sm">Edit</a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% endif %}
-
-<div class="card-grid">
-    <div class="card">
-        <div class="card-title">Total Exchanges</div>
-        <div class="card-value" id="total-exchanges-count">{{ exchange_balances|length }}</div>
-    </div>
-    <div class="card">
-        <div class="card-title" id="balance-card-title">
-            {% if selected_exchange_name %}
-                Total Balance ({{ selected_exchange_name }})
-            {% else %}
-                Total Balance (All Exchanges)
-            {% endif %}
-        </div>
-        <div class="card-value" id="total-balance-display" style="color: var(--accent); font-size: 28px;">₹ {{ total_balance_all_exchanges|default:0 }}</div>
-    </div>
-</div>
-
-<div id="exchange-balances-container">
+<!-- Exchange Balance Details -->
 {% for balance in exchange_balances %}
-<div class="table-wrapper mt-3 exchange-balance-section" data-exchange-id="{{ balance.client_exchange.pk }}">
-    <div class="table-header" style="display: flex; justify-content: space-between; align-items: center;">
-        <div><strong>{{ balance.exchange.name }}</strong> - Balance Summary</div>
-        <div style="font-size: 24px; font-weight: 700; color: var(--accent);">
-            Total Balance: ₹ {{ balance.total_balance_in_exchange|default:balance.client_net }}
+<div class="table-wrapper" style="margin-bottom: 24px;">
+    <div class="table-header">
+        <div><strong>{{ balance.exchange.name }}</strong>{% if balance.exchange.code %} ({{ balance.exchange.code }}){% endif %} - Balance Summary</div>
+        <div style="font-size: 20px; font-weight: 600; color: var(--accent);">
+            Total Balance: ₹ {{ balance.total_balance_in_exchange|floatformat:2 }}
         </div>
     </div>
     <table>
@@ -131,189 +102,230 @@
         </tr>
         </thead>
         <tbody>
-        <tr style="background: var(--accent-soft);">
+        <tr>
             <td><strong>Total Balance in Exchange Account</strong></td>
-            <td><strong style="font-size: 20px; color: var(--accent);">₹ {{ balance.total_balance_in_exchange|default:balance.client_net }}</strong></td>
+            <td><strong style="font-size: 18px; color: var(--accent);">₹ {{ balance.total_balance_in_exchange|floatformat:2 }}</strong></td>
         </tr>
-        {% if balance.latest_balance_record %}
-        <tr>
-            <td style="font-size: 12px; color: var(--muted);">Last Recorded Balance ({{ balance.latest_balance_record.date }})</td>
-            <td style="font-size: 12px; color: var(--muted);">₹ {{ balance.latest_balance_record.remaining_balance }}</td>
-        </tr>
-        {% else %}
-        <tr>
-            <td style="font-size: 12px; color: var(--muted);">Calculated from Transactions</td>
-            <td style="font-size: 12px; color: var(--muted);">₹ {{ balance.client_net }}</td>
-        </tr>
-        {% endif %}
         <tr>
             <td>Total Funding</td>
-            <td><strong>₹ {{ balance.total_funding }}</strong></td>
+            <td><strong>₹ {{ balance.total_funding|floatformat:2 }}</strong></td>
         </tr>
         <tr>
             <td>Total Profit</td>
-            <td style="color: var(--success);">₹ {{ balance.total_profit }}</td>
+            <td style="color: var(--success);">₹ {{ balance.total_profit|floatformat:2 }}</td>
         </tr>
         <tr>
             <td>Total Loss</td>
-            <td style="color: var(--danger);">₹ {{ balance.total_loss }}</td>
+            <td style="color: var(--danger);">₹ {{ balance.total_loss|floatformat:2 }}</td>
         </tr>
         <tr>
             <td><strong>Client Net Balance</strong></td>
-            <td><strong style="color: {% if balance.client_net >= 0 %}var(--success){% else %}var(--danger){% endif %};">₹ {{ balance.client_net }}</strong></td>
+            <td><strong style="color: {% if balance.client_net >= 0 %}var(--success){% else %}var(--danger){% endif %};">₹ {{ balance.client_net|floatformat:2 }}</strong></td>
         </tr>
         <tr>
             <td><strong>Your Net Balance</strong></td>
-            <td><strong style="color: {% if balance.you_net >= 0 %}var(--success){% else %}var(--danger){% endif %};">₹ {{ balance.you_net }}</strong></td>
+            <td><strong style="color: {% if balance.you_net >= 0 %}var(--success){% else %}var(--danger){% endif %};">₹ {{ balance.you_net|floatformat:2 }}</strong></td>
         </tr>
         <tr>
             <td>Pending: Client Owes You</td>
-            <td style="color: var(--danger);">₹ {{ balance.pending_client_owes }}</td>
+            <td style="color: var(--danger);">₹ {{ balance.pending_client_owes|floatformat:2 }}</td>
         </tr>
         <tr>
             <td>Pending: You Owe Client</td>
-            <td style="color: var(--success);">₹ {{ balance.pending_you_owe }}</td>
+            <td style="color: var(--success);">₹ {{ balance.pending_you_owe|floatformat:2 }}</td>
         </tr>
-        <tr style="background: rgba(255, 0, 0, 0.05); border-top: 2px solid var(--border);">
+        <tr style="background: rgba(239, 68, 68, 0.05);">
             <td><strong>Pending Amount (Separate Ledger)</strong></td>
             <td><strong style="color: var(--danger); font-size: 18px;">₹ {{ balance.pending_amount|floatformat:2 }}</strong></td>
         </tr>
-        <tr style="font-size: 12px; color: var(--muted);">
-            <td colspan="2">Pending is separate - only affected by losses and client payments</td>
-        </tr>
         </tbody>
     </table>
-    
-    <!-- Profit/Loss Calculation Section -->
-    <div style="margin-top: 20px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border);">
-        <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">Profit/Loss Calculation</h3>
-        <table style="font-size: 14px;">
-            <tbody>
-            <tr>
-                <td><strong>Total Admin Funding</strong></td>
-                <td><strong>₹ {{ balance.total_funding }}</strong></td>
-            </tr>
-            <tr>
-                <td>Exchange Balance (Recorded + Extra)</td>
-                <td>₹ {{ balance.total_balance_in_exchange }}</td>
-            </tr>
-            {% if balance.latest_balance_record and balance.latest_balance_record.extra_adjustment %}
-            <tr style="font-size: 12px; color: var(--muted);">
-                <td>Extra Adjustment</td>
-                <td>+ ₹ {{ balance.latest_balance_record.extra_adjustment }}</td>
-            </tr>
-            {% endif %}
-            <tr style="border-top: 2px solid var(--border); padding-top: 8px;">
-                <td><strong>Client Profit/Loss</strong></td>
-                <td>
-                    <strong style="color: {% if balance.is_profit %}var(--success){% else %}var(--danger){% endif %}; font-size: 18px;">
-                        {% if balance.is_profit %}+{% endif %}₹ {{ balance.client_profit_loss }}
-                    </strong>
-                    {% if balance.is_profit %}
-                        <span style="color: var(--success); margin-left: 8px;">(Client in Profit)</span>
-                    {% else %}
-                        <span style="color: var(--danger); margin-left: 8px;">(Client in Loss)</span>
-                    {% endif %}
-                </td>
-            </tr>
-            {% if balance.is_profit %}
-            <!-- Client in Profit - Admin Loss -->
-            <tr style="background: rgba(255, 0, 0, 0.05);">
-                <td>Admin Loss ({{ settings.admin_loss_pct }}% of profit)</td>
-                <td style="color: var(--danger);">₹ {{ balance.admin_loss }}</td>
-            </tr>
-            <tr style="font-size: 12px; color: var(--muted);">
-                <td>Company Share ({{ settings.company_share_on_loss_pct }}% of admin loss)</td>
-                <td>₹ {{ balance.company_share_loss }}</td>
-            </tr>
-            <tr>
-                <td><strong>Admin Bears (After Company Share)</strong></td>
-                <td><strong style="color: var(--danger);">₹ {{ balance.admin_bears }}</strong></td>
-            </tr>
-            {% else %}
-            <!-- Client in Loss - Admin Profit -->
-            <tr style="background: rgba(0, 255, 0, 0.05);">
-                <td>Admin Profit ({{ settings.admin_profit_pct }}% of loss)</td>
-                <td style="color: var(--success);">₹ {{ balance.admin_profit }}</td>
-            </tr>
-            <tr style="font-size: 12px; color: var(--muted);">
-                <td>Company Share ({{ settings.company_share_on_profit_pct }}% of admin profit)</td>
-                <td>₹ {{ balance.company_share_profit }}</td>
-            </tr>
-            <tr style="font-size: 12px; color: var(--muted);">
-                <td>Admin Keeps</td>
-                <td>₹ {{ balance.admin_net }}</td>
-            </tr>
-            {% endif %}
-            </tbody>
-        </table>
-    </div>
-    
-    <!-- Daily Balance Records for this Exchange -->
-    {% if balance.daily_balances %}
-    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border);">
-        <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">Daily Balance Records (Last 10)</h3>
-        <table style="font-size: 14px;">
-            <thead>
-            <tr>
-                <th>Date</th>
-                <th>Remaining Balance</th>
-                <th>Note</th>
-                <th>Actions</th>
-            </tr>
-            </thead>
-            <tbody>
-            {% for daily_balance in balance.daily_balances %}
-                <tr>
-                    <td>{{ daily_balance.date }}</td>
-                    <td><strong style="color: var(--accent);">₹ {{ daily_balance.remaining_balance }}</strong></td>
-                    <td>{{ daily_balance.note|default:"—" }}</td>
-                    <td>
-                        <a href="?edit_balance={{ daily_balance.pk }}" class="btn btn-sm">Edit</a>
-                    </td>
-                </tr>
-            {% empty %}
-                <tr>
-                    <td colspan="4" style="text-align: center; color: var(--muted); padding: 20px;">No daily balance records yet for this exchange.</td>
-                </tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% endif %}
-</div>
-{% endfor %}
 </div>
 
+<!-- Profit/Loss Calculation -->
+<div class="table-wrapper" style="margin-bottom: 24px;">
+    <div class="table-header">
+        <div>Profit/Loss Calculation</div>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Item</th>
+            <th>Amount</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+            <td><strong>Total Admin Funding</strong></td>
+            <td><strong>₹ {{ balance.total_funding|floatformat:2 }}</strong></td>
+        </tr>
+        <tr>
+            <td>Exchange Balance (Recorded + Extra)</td>
+            <td>₹ {{ balance.total_balance_in_exchange|floatformat:2 }}</td>
+        </tr>
+        <tr style="border-top: 2px solid var(--border);">
+            <td><strong>Client Profit/Loss</strong></td>
+            <td>
+                <strong style="color: {% if balance.is_profit %}var(--success){% else %}var(--danger){% endif %}; font-size: 18px;">
+                    {% if balance.is_profit %}+{% endif %}₹ {{ balance.client_profit_loss|floatformat:2 }}
+                </strong>
+                {% if balance.is_profit %}
+                    <span style="color: var(--success); margin-left: 8px;">(Client in Profit)</span>
+                {% else %}
+                    <span style="color: var(--danger); margin-left: 8px;">(Client in Loss)</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% if balance.is_profit %}
+        <tr style="background: rgba(239, 68, 68, 0.05);">
+            <td>Admin Pays ({{ settings.admin_profit_share_pct }}% of profit)</td>
+            <td style="color: var(--danger);">₹ {{ balance.admin_pays|default:balance.admin_loss|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>Company Pays ({{ settings.company_profit_share_pct }}% of profit)</td>
+            <td>₹ {{ balance.company_pays|default:balance.company_share_loss|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td><strong>Total Payable to Client</strong></td>
+            <td><strong style="color: var(--danger);">₹ {{ balance.client_profit|default:balance.client_profit_loss|floatformat:2 }}</strong></td>
+        </tr>
+        {% else %}
+        <tr style="background: rgba(16, 185, 129, 0.05);">
+            <td>Admin Earns ({{ settings.admin_loss_share_pct }}% of loss)</td>
+            <td style="color: var(--success);">₹ {{ balance.admin_earns|default:balance.admin_profit|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>Company Earns ({{ settings.company_loss_share_pct }}% of loss)</td>
+            <td>₹ {{ balance.company_earns|default:balance.company_share_profit|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td><strong>Admin Net</strong></td>
+            <td><strong>₹ {{ balance.admin_net|floatformat:2 }}</strong></td>
+        </tr>
+        {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Daily Balance History -->
+{% if balance.daily_balances %}
+<div class="table-wrapper" style="margin-bottom: 24px;">
+    <div class="table-header">
+        <div>Daily Balance Records (Last 10)</div>
+    </div>
+    <table>
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Remaining Balance</th>
+            <th>Extra Adjustment</th>
+            <th>Note</th>
+            <th>Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for daily_balance in balance.daily_balances|slice:":10" %}
+        <tr>
+            <td>{{ daily_balance.date|date:"M d, Y" }}</td>
+            <td><strong style="color: var(--accent);">₹ {{ daily_balance.remaining_balance|floatformat:2 }}</strong></td>
+            <td>{% if daily_balance.extra_adjustment %}<span style="color: var(--success);">+ ₹ {{ daily_balance.extra_adjustment|floatformat:2 }}</span>{% else %}—{% endif %}</td>
+            <td>{{ daily_balance.note|default:"—" }}</td>
+            <td>
+                <a href="?edit_balance={{ daily_balance.pk }}{% if selected_exchange_id %}&exchange={{ selected_exchange_id }}{% endif %}" class="btn btn-sm">Edit</a>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endfor %}
+
 {% if exchange_balances|length == 0 %}
-<div class="table-wrapper mt-3">
+<div class="table-wrapper">
     <div style="padding: 40px; text-align: center; color: var(--muted);">
         No exchanges configured for this client yet.
     </div>
 </div>
 {% endif %}
 
+<!-- All Transactions Section -->
+{% if all_transactions %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 0; border: 1px solid var(--border); margin-bottom: 24px; overflow: hidden;">
+    <div style="padding: 16px 20px; border-bottom: 1px solid var(--border); background: var(--bg-content);">
+        <h2 style="font-size: 18px; font-weight: 600; margin: 0;">
+            All Transactions
+            {% if selected_exchange_name %}
+                - {{ selected_exchange_name }}
+            {% endif %}
+        </h2>
+    </div>
+    <div style="padding: 20px;">
+        <div class="table-wrapper" style="border: none; box-shadow: none;">
+            <table>
+                <thead>
+                <tr>
+                    <th>Date</th>
+                    {% if not selected_exchange_id %}
+                    <th>Exchange</th>
+                    {% endif %}
+                    <th>Type</th>
+                    <th>Amount</th>
+                    <th>Your Share</th>
+                    <th>Client Share</th>
+                    <th>Company Share</th>
+                    <th>Note</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for tx in all_transactions %}
+                    <tr>
+                        <td><strong>{{ tx.date|date:"M d, Y" }}</strong></td>
+                        {% if not selected_exchange_id %}
+                        <td>{{ tx.client_exchange.exchange.name }}</td>
+                        {% endif %}
+                        <td>
+                            {% if tx.transaction_type == 'PROFIT' %}
+                                <span class="badge badge-success">{{ tx.get_transaction_type_display }}</span>
+                            {% elif tx.transaction_type == 'LOSS' %}
+                                <span class="badge" style="background: #fee2e2; color: var(--danger);">{{ tx.get_transaction_type_display }}</span>
+                            {% elif tx.transaction_type == 'FUNDING' %}
+                                <span class="badge" style="background: #dbeafe; color: #1e40af;">{{ tx.get_transaction_type_display }}</span>
+                            {% else %}
+                                <span class="badge badge-muted">{{ tx.get_transaction_type_display }}</span>
+                            {% endif %}
+                        </td>
+                        <td><strong>₹ {{ tx.amount|floatformat:2 }}</strong></td>
+                        <td>₹ {{ tx.your_share_amount|floatformat:2 }}</td>
+                        <td>₹ {{ tx.client_share_amount|floatformat:2 }}</td>
+                        <td>₹ {{ tx.company_share_amount|floatformat:2 }}</td>
+                        <td style="color: var(--muted); font-size: 13px;">{{ tx.note|default:"—"|truncatewords:10 }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <script>
-// Filter page by exchange when exchange is selected
 function filterByExchange(clientExchangeId) {
     if (!clientExchangeId) {
-        // If no exchange selected, go to balance page without filter
-        window.location.href = "{% url 'clients:balance' client.pk %}";
+        window.location.href = "{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}";
     } else {
-        // Redirect to balance page with exchange filter
-        window.location.href = "{% url 'clients:balance' client.pk %}?exchange=" + clientExchangeId;
+        window.location.href = "{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}?exchange=" + clientExchangeId;
     }
 }
 
-// Load exchange balance data when exchange is selected in the form
 function loadExchangeBalanceData(clientExchangeId) {
     if (!clientExchangeId) {
-        // Reset form if no exchange selected
         document.getElementById('balance-date').value = '{{ today|date:"Y-m-d" }}';
         document.getElementById('balance-amount').value = '';
         document.getElementById('balance-note').value = '';
         document.getElementById('balance-loading').style.display = 'none';
         document.getElementById('calculated-balance-hint').style.display = 'none';
+        document.getElementById('funding-hint').style.display = 'none';
         return;
     }
     
@@ -325,30 +337,37 @@ function loadExchangeBalanceData(clientExchangeId) {
     
     loadingDiv.style.display = 'block';
     
-    // Make AJAX request to get latest balance
-    fetch(`{% url 'clients:get_latest_balance' client.pk %}?client_exchange_id=${clientExchangeId}`)
+    fetch(`{% if client_type == 'company' %}{% url 'company_clients:get_latest_balance' client.pk %}{% else %}{% url 'my_clients:get_latest_balance' client.pk %}{% endif %}?client_exchange_id=${clientExchangeId}`)
         .then(response => response.json())
         .then(data => {
             loadingDiv.style.display = 'none';
             
             if (data.success) {
-                // Update form fields
                 dateInput.value = data.date;
                 amountInput.value = data.remaining_balance;
                 noteInput.value = data.note || '';
                 
-                // Show calculated balance hint if different from recorded
+                const fundingHintDiv = document.getElementById('funding-hint');
+                
+                // Show calculated balance hint
                 if (data.has_recorded_balance && data.calculated_balance !== data.remaining_balance) {
-                    hintDiv.textContent = `Calculated balance from transactions: ₹ ${parseFloat(data.calculated_balance).toLocaleString('en-IN')}`;
+                    hintDiv.textContent = `Calculated balance: ₹ ${parseFloat(data.calculated_balance).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
                     hintDiv.style.display = 'block';
                 } else if (!data.has_recorded_balance) {
-                    hintDiv.textContent = `Using calculated balance from transactions`;
+                    hintDiv.textContent = `Calculated balance: ₹ ${parseFloat(data.calculated_balance).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
                     hintDiv.style.display = 'block';
                 } else {
                     hintDiv.style.display = 'none';
                 }
+                
+                // Show funding hint
+                if (data.total_funding && parseFloat(data.total_funding) > 0) {
+                    fundingHintDiv.textContent = `Funding: +₹${parseFloat(data.total_funding).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                    fundingHintDiv.style.display = 'block';
+                } else {
+                    fundingHintDiv.style.display = 'none';
+                }
             } else {
-                // Error loading data
                 hintDiv.textContent = 'Error loading balance data';
                 hintDiv.style.color = 'var(--danger)';
                 hintDiv.style.display = 'block';
@@ -362,6 +381,14 @@ function loadExchangeBalanceData(clientExchangeId) {
             console.error('Error:', error);
         });
 }
+
+{% if selected_exchange_id %}
+document.addEventListener('DOMContentLoaded', function() {
+    const select = document.getElementById('form-exchange-select');
+    if (select && select.value) {
+        loadExchangeBalanceData(select.value);
+    }
+});
+{% endif %}
 </script>
 {% endblock %}
-

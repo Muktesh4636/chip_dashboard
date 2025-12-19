@@ -1,14 +1,29 @@
 {% extends "core/base.html" %}
 
-{% block title %}Clients · Broker Portal{% endblock %}
-{% block page_title %}Clients{% endblock %}
+{% block title %}{% if client_type == 'company' %}Company Clients{% elif client_type == 'my' %}My Clients{% else %}Clients{% endif %} · Broker Portal{% endblock %}
+{% block page_title %}{% if client_type == 'company' %}Company Clients{% elif client_type == 'my' %}My Clients{% else %}All Clients{% endif %}{% endblock %}
 {% block page_subtitle %}Manage clients and their exchanges{% endblock %}
 
 {% block page_actions %}
+    {% if client_type == 'company' %}
+        <a href="{% url 'company_clients:add' %}" class="btn btn-primary">Add Company Client</a>
+    {% elif client_type == 'my' %}
+        <a href="{% url 'my_clients:add' %}" class="btn btn-primary">Add My Client</a>
+    {% else %}
     <a href="{% url 'clients:add' %}" class="btn btn-primary">Add Client</a>
+    {% endif %}
 {% endblock %}
 
 {% block content %}
+{% if messages %}
+    <div style="margin-bottom: 20px;">
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}" style="padding: 12px 16px; border-radius: 8px; margin-bottom: 8px; {% if message.tags == 'success' %}background: #d1fae5; color: #065f46; border: 1px solid #10b981;{% elif message.tags == 'error' %}background: #fee2e2; color: #991b1b; border: 1px solid #dc2626;{% else %}background: #dbeafe; color: #1e40af; border: 1px solid #3b82f6;{% endif %}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    </div>
+{% endif %}
 <div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
     <form method="get" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
         <div style="flex: 1; min-width: 200px;">
@@ -27,17 +42,17 @@
             </select>
         </div>
         <div style="display: flex; gap: 8px; align-items: flex-end;">
-            <button type="submit" class="btn btn-primary">Search</button>
+        <button type="submit" class="btn btn-primary">Search</button>
             {% if client_search or selected_exchange %}
-                <a href="{% url 'clients:list' %}" class="btn">Clear</a>
-            {% endif %}
+            <a href="{% url 'clients:list' %}" class="btn">Clear</a>
+        {% endif %}
         </div>
     </form>
 </div>
 
 <div class="table-wrapper">
     <div class="table-header">
-        <span>All Clients</span>
+        <span>{% if client_type == 'company' %}Company Clients{% elif client_type == 'my' %}My Clients{% else %}All Clients{% endif %}</span>
         <span class="pill">
             <span>Total</span>
             <span>{{ clients|length }}</span>
@@ -48,27 +63,42 @@
         <tr>
             <th>Code</th>
             <th>Name</th>
+            <th>Type</th>
             <th>Status</th>
             <th>Exchanges</th>
+            <th>Actions</th>
         </tr>
         </thead>
         <tbody>
         {% for client in clients %}
-            <tr onclick="window.location='{% url 'clients:detail' client.pk %}'" style="cursor:pointer;">
-                <td>{% if client.code %}{{ client.code }}{% else %}<span style="color: var(--muted);">—</span>{% endif %}</td>
-                <td>{{ client.name }}</td>
-                <td>
+            <tr>
+                <td onclick="window.location='{% if client_type == 'company' %}{% url 'company_clients:detail' client.pk %}{% elif client_type == 'my' %}{% url 'my_clients:detail' client.pk %}{% else %}{% url 'clients:detail' client.pk %}{% endif %}'" style="cursor:pointer;">{% if client.code %}{{ client.code }}{% else %}<span style="color: var(--muted);">—</span>{% endif %}</td>
+                <td onclick="window.location='{% if client_type == 'company' %}{% url 'company_clients:detail' client.pk %}{% elif client_type == 'my' %}{% url 'my_clients:detail' client.pk %}{% else %}{% url 'clients:detail' client.pk %}{% endif %}'" style="cursor:pointer;">{{ client.name }}</td>
+                <td onclick="window.location='{% if client_type == 'company' %}{% url 'company_clients:detail' client.pk %}{% elif client_type == 'my' %}{% url 'my_clients:detail' client.pk %}{% else %}{% url 'clients:detail' client.pk %}{% endif %}'" style="cursor:pointer;">
+                    {% if client.is_company_client %}
+                        <span class="badge" style="background: #dbeafe; color: #1e40af;">Company</span>
+                    {% else %}
+                        <span class="badge" style="background: #f3e8ff; color: #7c3aed;">My Client</span>
+                    {% endif %}
+                </td>
+                <td onclick="window.location='{% url 'clients:detail' client.pk %}'" style="cursor:pointer;">
                     {% if client.is_active %}
                         <span class="badge badge-success">Active</span>
                     {% else %}
                         <span class="badge badge-muted">Inactive</span>
                     {% endif %}
                 </td>
-                <td>{{ client.exchanges.count }}</td>
+                <td onclick="window.location='{% url 'clients:detail' client.pk %}'" style="cursor:pointer;">{{ client.client_exchanges.count }}</td>
+                <td onclick="event.stopPropagation();" style="cursor:default;">
+                    <form method="post" action="{% url 'clients:delete' client.pk %}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete {{ client.name }}? This action cannot be undone.');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm" style="background: var(--danger); color: white; padding: 4px 12px; font-size: 14px;">Delete</button>
+                    </form>
+                </td>
             </tr>
         {% empty %}
             <tr>
-                <td colspan="4">No clients yet.</td>
+                <td colspan="6">No clients yet.</td>
             </tr>
         {% endfor %}
         </tbody>

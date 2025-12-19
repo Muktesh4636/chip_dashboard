@@ -11,36 +11,75 @@ from django.views.decorators.http import require_http_methods
 from .models import Client, Exchange, ClientExchange, Transaction, CompanyShareRecord, SystemSettings, ClientDailyBalance, PendingAmount
 
 
-def get_exchange_balance(client_exchange):
+def get_exchange_balance(client_exchange, as_of_date=None):
     """
-    Get current exchange balance (separate ledger).
-    Exchange balance = latest recorded balance + extra adjustment.
+    Get exchange balance (separate ledger) as of a specific date.
+    Exchange balance = latest recorded balance + extra adjustment up to as_of_date.
+    
+    Args:
+        client_exchange: ClientExchange instance
+        as_of_date: Optional date to calculate as of. If None, uses current state.
     """
-    latest_balance_record = ClientDailyBalance.objects.filter(
-        client_exchange=client_exchange
-    ).order_by("-date").first()
+    balance_filter = {"client_exchange": client_exchange}
+    if as_of_date:
+        balance_filter["date__lte"] = as_of_date
+    
+    latest_balance_record = ClientDailyBalance.objects.filter(**balance_filter).order_by("-date").first()
     
     if latest_balance_record:
         return latest_balance_record.remaining_balance + (latest_balance_record.extra_adjustment or Decimal(0))
     else:
-        # If no balance recorded, start with total funding
-        total_funding = Transaction.objects.filter(
-            client_exchange=client_exchange,
-            transaction_type=Transaction.TYPE_FUNDING
-        ).aggregate(total=Sum("amount"))["total"] or Decimal(0)
+        # If no balance recorded, start with total funding up to as_of_date
+        funding_filter = {"client_exchange": client_exchange, "transaction_type": Transaction.TYPE_FUNDING}
+        if as_of_date:
+            funding_filter["date__lte"] = as_of_date
+        total_funding = Transaction.objects.filter(**funding_filter).aggregate(total=Sum("amount"))["total"] or Decimal(0)
         return total_funding
 
 
-def get_pending_amount(client_exchange):
+def get_pending_amount(client_exchange, as_of_date=None):
     """
-    Get pending amount (separate ledger for unpaid losses).
-    Pending is only affected by losses and client payments.
+    Get pending amount (separate ledger for unpaid losses) as of a specific date.
+    Pending = Sum of losses - Sum of client payments (settlements) up to as_of_date.
+    
+    Args:
+        client_exchange: ClientExchange instance
+        as_of_date: Optional date to calculate as of. If None, uses current PendingAmount record.
+    
+    Returns:
+        Pending amount as of the specified date
     """
-    pending, _ = PendingAmount.objects.get_or_create(
-        client_exchange=client_exchange,
-        defaults={"pending_amount": Decimal(0)}
-    )
-    return pending.pending_amount
+    if as_of_date is None:
+        # Use current pending amount record
+        pending, _ = PendingAmount.objects.get_or_create(
+            client_exchange=client_exchange,
+            defaults={"pending_amount": Decimal(0)}
+        )
+        return pending.pending_amount
+    
+    # Calculate historical pending: losses minus client payments up to as_of_date
+    # Losses create pending
+    loss_filter = {
+        "client_exchange": client_exchange,
+        "transaction_type": Transaction.TYPE_LOSS,
+        "date__lte": as_of_date
+    }
+    total_losses = Transaction.objects.filter(**loss_filter).aggregate(total=Sum("amount"))["total"] or Decimal(0)
+    
+    # Client payments (settlements where client pays) reduce pending
+    # Settlement transactions where client_share_amount is 0 and your_share_amount > 0 means client paid
+    settlement_filter = {
+        "client_exchange": client_exchange,
+        "transaction_type": Transaction.TYPE_SETTLEMENT,
+        "date__lte": as_of_date,
+        "client_share_amount": 0,  # Client pays
+        "your_share_amount__gt": 0  # Admin receives
+    }
+    client_payments = Transaction.objects.filter(**settlement_filter).aggregate(total=Sum("your_share_amount"))["total"] or Decimal(0)
+    
+    # Historical pending = losses - client payments
+    historical_pending = max(Decimal(0), total_losses - client_payments)
+    return historical_pending
 
 
 def update_pending_from_balance_change(client_exchange, previous_balance, new_balance):
@@ -63,12 +102,16 @@ def update_pending_from_balance_change(client_exchange, previous_balance, new_ba
     return Decimal(0)
 
 
-def calculate_client_profit_loss(client_exchange):
+def calculate_client_profit_loss(client_exchange, as_of_date=None):
     """
     Calculate client profit/loss based on separate ledgers:
     - Total funding (chips given)
     - Current exchange balance
     - Pending amount (separate, unpaid losses)
+    
+    Args:
+        client_exchange: ClientExchange instance
+        as_of_date: Optional date to calculate as of (for time-travel). If None, uses current state.
     
     Returns:
         dict with:
@@ -79,22 +122,31 @@ def calculate_client_profit_loss(client_exchange):
         - is_profit: Boolean indicating if client is in profit
         - latest_balance_record: Latest ClientDailyBalance record
     """
-    # Get total funding (turnover = chips given)
-    total_funding = Transaction.objects.filter(
-        client_exchange=client_exchange,
-        transaction_type=Transaction.TYPE_FUNDING
-    ).aggregate(total=Sum("amount"))["total"] or Decimal(0)
+    # Filter transactions up to as_of_date if provided
+    funding_filter = {"client_exchange": client_exchange, "transaction_type": Transaction.TYPE_FUNDING}
+    if as_of_date:
+        funding_filter["date__lte"] = as_of_date
     
-    # Get latest balance record
-    latest_balance_record = ClientDailyBalance.objects.filter(
-        client_exchange=client_exchange
-    ).order_by("-date").first()
+    # Get total funding (turnover = chips given) up to as_of_date
+    total_funding = Transaction.objects.filter(**funding_filter).aggregate(total=Sum("amount"))["total"] or Decimal(0)
     
-    # Get current exchange balance
-    exchange_balance = get_exchange_balance(client_exchange)
+    # Get latest balance record up to as_of_date
+    balance_filter = {"client_exchange": client_exchange}
+    if as_of_date:
+        balance_filter["date__lte"] = as_of_date
+    latest_balance_record = ClientDailyBalance.objects.filter(**balance_filter).order_by("-date").first()
     
-    # Get pending amount (separate ledger)
-    pending_amount = get_pending_amount(client_exchange)
+    # Get exchange balance as of date
+    if as_of_date:
+        exchange_balance = get_exchange_balance(client_exchange, as_of_date=as_of_date)
+    else:
+        exchange_balance = get_exchange_balance(client_exchange)
+    
+    # Get pending amount as of date (losses minus settlements up to that date)
+    if as_of_date:
+        pending_amount = get_pending_amount(client_exchange, as_of_date=as_of_date)
+    else:
+        pending_amount = get_pending_amount(client_exchange)
     
     # Calculate profit/loss (exchange balance change from funding)
     client_profit_loss = exchange_balance - total_funding
@@ -114,47 +166,61 @@ def calculate_admin_profit_loss(client_profit_loss, settings):
     """
     Calculate admin profit/loss and company share based on client profit/loss.
     
+    NEW LOGIC:
+    - On LOSS: Admin earns X% of loss, Company earns Y% of loss (independent)
+    - On PROFIT: Admin pays X% of profit, Company pays Y% of profit (independent)
+    - Company share is NOT taken from admin share - both are calculated from actual P/L
+    
     Args:
         client_profit_loss: Client's profit (positive) or loss (negative)
         settings: SystemSettings instance
     
     Returns:
         dict with:
-        - admin_profit: Admin profit on client loss (if client in loss)
-        - admin_loss: Admin loss on client profit (if client in profit)
-        - company_share_profit: Company share from admin profit
-        - company_share_loss: Company share from admin loss
-        - admin_net: Net amount for admin after company share
+        - admin_earns: Admin earnings on client loss (if client in loss)
+        - admin_pays: Admin payment on client profit (if client in profit)
+        - company_earns: Company earnings on client loss
+        - company_pays: Company payment on client profit
+        - admin_net: Net amount for admin (earns - pays)
+        - Legacy fields for backward compatibility
     """
     if client_profit_loss < 0:
-        # Client in LOSS - Admin gets profit
+        # Client in LOSS - Admin and Company EARN (independent shares from loss)
         client_loss = abs(client_profit_loss)
-        admin_profit = (client_loss * settings.admin_profit_pct) / Decimal(100)
-        company_share_profit = (admin_profit * settings.company_share_on_profit_pct) / Decimal(100)
-        admin_net_profit = admin_profit - company_share_profit
+        admin_earns = (client_loss * settings.admin_loss_share_pct) / Decimal(100)
+        company_earns = (client_loss * settings.company_loss_share_pct) / Decimal(100)
         
         return {
-            "admin_profit": admin_profit,
-            "admin_loss": Decimal(0),
-            "company_share_profit": company_share_profit,
-            "company_share_loss": Decimal(0),
-            "admin_net": admin_net_profit,
+            "admin_earns": admin_earns,
+            "admin_pays": Decimal(0),
+            "company_earns": company_earns,
+            "company_pays": Decimal(0),
+            "admin_net": admin_earns,  # Admin earns, no deduction
             "admin_bears": Decimal(0),  # No loss when client is in loss
+            # Legacy fields for backward compatibility
+            "admin_profit": admin_earns,
+            "admin_loss": Decimal(0),
+            "company_share_profit": company_earns,
+            "company_share_loss": Decimal(0),
         }
     else:
-        # Client in PROFIT - Admin bears loss
+        # Client in PROFIT - Admin and Company PAY (independent shares from profit)
         client_profit = client_profit_loss
-        admin_loss = (client_profit * settings.admin_loss_pct) / Decimal(100)
-        company_share_loss = (admin_loss * settings.company_share_on_loss_pct) / Decimal(100)
-        admin_net_loss = admin_loss - company_share_loss
+        admin_pays = (client_profit * settings.admin_profit_share_pct) / Decimal(100)
+        company_pays = (client_profit * settings.company_profit_share_pct) / Decimal(100)
         
         return {
+            "admin_earns": Decimal(0),
+            "admin_pays": admin_pays,
+            "company_earns": Decimal(0),
+            "company_pays": company_pays,
+            "admin_net": -admin_pays,  # Negative because admin pays
+            "admin_bears": admin_pays,  # Amount admin pays (company pays separately)
+            # Legacy fields for backward compatibility
             "admin_profit": Decimal(0),
-            "admin_loss": admin_loss,
+            "admin_loss": admin_pays,
             "company_share_profit": Decimal(0),
-            "company_share_loss": company_share_loss,
-            "admin_net": -admin_net_loss,  # Negative because it's a loss
-            "admin_bears": admin_net_loss,  # Positive amount admin bears
+            "company_share_loss": company_pays,
         }
 
 
@@ -227,6 +293,7 @@ def dashboard(request):
 
 
 def client_list(request):
+    """List all clients (both company and my clients)"""
     client_search = request.GET.get("client_search", "")
     exchange_id = request.GET.get("exchange", "")
     
@@ -252,6 +319,69 @@ def client_list(request):
         "client_search": client_search,
         "selected_exchange": int(exchange_id) if exchange_id else None,
         "all_exchanges": all_exchanges,
+        "client_type": "all",
+    })
+
+
+def company_clients_list(request):
+    """List only company clients"""
+    client_search = request.GET.get("client_search", "")
+    exchange_id = request.GET.get("exchange", "")
+    
+    clients = Client.objects.filter(is_company_client=True).order_by("name")
+    
+    # Filter by client name or code
+    if client_search:
+        clients = clients.filter(
+            Q(name__icontains=client_search) | Q(code__icontains=client_search)
+        )
+    
+    # Filter by exchange
+    if exchange_id:
+        clients = clients.filter(
+            client_exchanges__exchange_id=exchange_id
+        ).distinct()
+    
+    # Get all exchanges for dropdown
+    all_exchanges = Exchange.objects.filter(is_active=True).order_by("name")
+    
+    return render(request, "core/clients/list.html", {
+        "clients": clients,
+        "client_search": client_search,
+        "selected_exchange": int(exchange_id) if exchange_id else None,
+        "all_exchanges": all_exchanges,
+        "client_type": "company",
+    })
+
+
+def my_clients_list(request):
+    """List only my (personal) clients"""
+    client_search = request.GET.get("client_search", "")
+    exchange_id = request.GET.get("exchange", "")
+    
+    clients = Client.objects.filter(is_company_client=False).order_by("name")
+    
+    # Filter by client name or code
+    if client_search:
+        clients = clients.filter(
+            Q(name__icontains=client_search) | Q(code__icontains=client_search)
+        )
+    
+    # Filter by exchange
+    if exchange_id:
+        clients = clients.filter(
+            client_exchanges__exchange_id=exchange_id
+        ).distinct()
+    
+    # Get all exchanges for dropdown
+    all_exchanges = Exchange.objects.filter(is_active=True).order_by("name")
+    
+    return render(request, "core/clients/list.html", {
+        "clients": clients,
+        "client_search": client_search,
+        "selected_exchange": int(exchange_id) if exchange_id else None,
+        "all_exchanges": all_exchanges,
+        "client_type": "my",
     })
 
 
@@ -264,6 +394,8 @@ def client_detail(request, pk):
         .select_related("client_exchange", "client_exchange__exchange")
         .order_by("-date", "-created_at")[:50]
     )
+    # Determine client type for URL namespace
+    client_type = "company" if client.is_company_client else "my"
     return render(
         request,
         "core/clients/detail.html",
@@ -272,6 +404,7 @@ def client_detail(request, pk):
             "client_exchanges": active_client_exchanges,
             "inactive_client_exchanges": inactive_client_exchanges,
             "transactions": transactions,
+            "client_type": client_type,
         },
     )
 
@@ -322,10 +455,17 @@ def client_give_money(request, client_pk):
             
             # Funding does NOT affect pending (separate ledger)
             
-            return redirect(reverse("clients:detail", args=[client.pk]))
+            # Redirect to appropriate namespace based on client type
+            if client.is_company_client:
+                return redirect(reverse("company_clients:detail", args=[client.pk]))
+            else:
+                return redirect(reverse("my_clients:detail", args=[client.pk]))
     
     # If GET or validation fails, redirect back to client detail
-    return redirect(reverse("clients:detail", args=[client.pk]))
+    if client.is_company_client:
+        return redirect(reverse("company_clients:detail", args=[client.pk]))
+    else:
+        return redirect(reverse("my_clients:detail", args=[client.pk]))
 
 
 def settle_payment(request):
@@ -335,8 +475,14 @@ def settle_payment(request):
     2. Admin pays client profit (doesn't affect pending)
     
     Partial payments are fully supported - client can pay any amount up to pending.
+    
+    NOTE: This action is only allowed for current date, not for time-travel views.
     """
     if request.method == "POST":
+        # Prevent settlement actions from time-travel views
+        from django.contrib import messages
+        messages.error(request, "Payment recording is only allowed for current date. Time-travel views are read-only.")
+        return redirect(reverse("pending:summary"))
         client_id = request.POST.get("client_id")
         client_exchange_id = request.POST.get("client_exchange_id")
         amount = Decimal(request.POST.get("amount", 0))
@@ -344,59 +490,88 @@ def settle_payment(request):
         note = request.POST.get("note", "")
         payment_type = request.POST.get("payment_type", "client_pays")  # client_pays or admin_pays_profit
         
+        # Get report_type from POST or GET to preserve it in redirect
+        report_type = request.POST.get("report_type") or request.GET.get("report_type", "weekly")
+        
         if client_id and client_exchange_id and amount > 0 and tx_date:
-            client = get_object_or_404(Client, pk=client_id)
-            client_exchange = get_object_or_404(ClientExchange, pk=client_exchange_id, client=client)
-            
-            if payment_type == "client_pays":
-                # Client pays pending amount - reduces pending (partial or full payment)
-                pending, _ = PendingAmount.objects.get_or_create(
-                    client_exchange=client_exchange,
-                    defaults={"pending_amount": Decimal(0)}
-                )
+            try:
+                client = get_object_or_404(Client, pk=client_id)
+                client_exchange = get_object_or_404(ClientExchange, pk=client_exchange_id, client=client)
                 
-                # Get current pending amount
-                current_pending = pending.pending_amount
-                
-                # Reduce pending by payment amount (can't go below 0)
-                # Allow partial payments - any amount up to pending
-                payment_amount = min(amount, current_pending)  # Don't allow overpayment
-                pending.pending_amount = max(Decimal(0), current_pending - payment_amount)
-                pending.save()
-                
-                # Create SETTLEMENT transaction for client payment
-                Transaction.objects.create(
-                    client_exchange=client_exchange,
-                    date=datetime.strptime(tx_date, "%Y-%m-%d").date(),
-                    transaction_type=Transaction.TYPE_SETTLEMENT,
-                    amount=payment_amount,
-                    client_share_amount=Decimal(0),  # Client pays, so negative for client
-                    your_share_amount=payment_amount,  # Admin receives
-                    company_share_amount=Decimal(0),
-                    note=note or f"Client payment against pending amount (₹{payment_amount} of ₹{current_pending})",
-                )
-                
-                return redirect(reverse("pending:summary") + "?section=clients-owe")
-            else:
-                # Admin pays client profit - doesn't affect pending or exchange balance
-                Transaction.objects.create(
-                    client_exchange=client_exchange,
-                    date=datetime.strptime(tx_date, "%Y-%m-%d").date(),
-                    transaction_type=Transaction.TYPE_SETTLEMENT,
-                    amount=amount,
-                    client_share_amount=amount,  # Client receives
-                    your_share_amount=Decimal(0),
-                    company_share_amount=Decimal(0),
-                    note=note or f"Admin payment for client profit",
-                )
-                
-                return redirect(reverse("pending:summary") + "?section=you-owe")
+                # payment_type should be either "client_pays" or "admin_pays_profit"
+                if payment_type == "client_pays":
+                    # Client pays pending amount - reduces pending (partial or full payment)
+                    pending, _ = PendingAmount.objects.get_or_create(
+                        client_exchange=client_exchange,
+                        defaults={"pending_amount": Decimal(0)}
+                    )
+                    
+                    # Get current pending amount
+                    current_pending = pending.pending_amount
+                    
+                    # Reduce pending by payment amount (can't go below 0)
+                    # Allow partial payments - any amount up to pending
+                    payment_amount = min(amount, current_pending)  # Don't allow overpayment
+                    pending.pending_amount = max(Decimal(0), current_pending - payment_amount)
+                    pending.save()
+                    
+                    # Create SETTLEMENT transaction for client payment
+                    transaction = Transaction.objects.create(
+                        client_exchange=client_exchange,
+                        date=datetime.strptime(tx_date, "%Y-%m-%d").date(),
+                        transaction_type=Transaction.TYPE_SETTLEMENT,
+                        amount=payment_amount,
+                        client_share_amount=Decimal(0),  # Client pays, so negative for client
+                        your_share_amount=payment_amount,  # Admin receives
+                        company_share_amount=Decimal(0),
+                        note=note or f"Client payment against pending amount (₹{payment_amount} of ₹{current_pending})",
+                    )
+                    
+                    from django.contrib import messages
+                    messages.success(request, f"Payment of ₹{payment_amount} recorded successfully for {client.name} - {client_exchange.exchange.name}. Remaining pending: ₹{pending.pending_amount}")
+                    
+                    return redirect(reverse("pending:summary") + f"?section=clients-owe&report_type={report_type}")
+                elif payment_type == "admin_pays_profit":
+                    # Admin pays client profit - doesn't affect pending or exchange balance
+                    transaction = Transaction.objects.create(
+                        client_exchange=client_exchange,
+                        date=datetime.strptime(tx_date, "%Y-%m-%d").date(),
+                        transaction_type=Transaction.TYPE_SETTLEMENT,
+                        amount=amount,
+                        client_share_amount=amount,  # Client receives
+                        your_share_amount=Decimal(0),
+                        company_share_amount=Decimal(0),
+                        note=note or f"Admin payment for client profit",
+                    )
+                    
+                    from django.contrib import messages
+                    messages.success(request, f"Payment of ₹{amount} recorded successfully for {client.name} - {client_exchange.exchange.name}")
+                    
+                    return redirect(reverse("pending:summary") + f"?section=you-owe&report_type={report_type}")
+                else:
+                    # Invalid payment type
+                    from django.contrib import messages
+                    messages.error(request, f"Invalid payment type: {payment_type}")
+                    return redirect(reverse("pending:summary") + f"?section=you-owe&report_type={report_type}")
+            except Exception as e:
+                # Log error and redirect with error message
+                from django.contrib import messages
+                messages.error(request, f"Error recording payment: {str(e)}")
+                return redirect(reverse("pending:summary") + f"?section=you-owe&report_type={report_type}")
     
     # If GET or validation fails, redirect to pending summary
-    return redirect(reverse("pending:summary"))
+    report_type = request.GET.get("report_type", "weekly")
+    return redirect(reverse("pending:summary") + f"?report_type={report_type}")
 
 
 def client_create(request):
+    """Legacy view - redirects to appropriate create view based on context"""
+    # Default to my clients if no context
+    return redirect(reverse("clients:add_my"))
+
+
+def company_client_create(request):
+    """Create a company client"""
     if request.method == "POST":
         name = request.POST.get("name")
         code = request.POST.get("code", "").strip()
@@ -405,10 +580,43 @@ def client_create(request):
             client = Client.objects.create(
                 name=name,
                 code=code if code else None,
-                referred_by=referred_by if referred_by else None
+                referred_by=referred_by if referred_by else None,
+                is_company_client=True
             )
-            return redirect(reverse("clients:detail", args=[client.pk]))
-    return render(request, "core/clients/create.html")
+            return redirect(reverse("company_clients:list"))
+    return render(request, "core/clients/create_company.html")
+
+
+def my_client_create(request):
+    """Create a my (personal) client"""
+    if request.method == "POST":
+        name = request.POST.get("name")
+        code = request.POST.get("code", "").strip()
+        referred_by = request.POST.get("referred_by", "").strip()
+        if name:
+            client = Client.objects.create(
+                name=name,
+                code=code if code else None,
+                referred_by=referred_by if referred_by else None,
+                is_company_client=False
+            )
+            return redirect(reverse("my_clients:list"))
+    return render(request, "core/clients/create_my.html")
+
+
+def client_delete(request, pk):
+    """Delete a client"""
+    client = get_object_or_404(Client, pk=pk)
+    
+    if request.method == "POST":
+        client_name = client.name
+        client.delete()
+        from django.contrib import messages
+        messages.success(request, f"Client '{client_name}' has been deleted successfully.")
+        return redirect(reverse("clients:list"))
+    
+    # If GET, show confirmation or redirect
+    return redirect(reverse("clients:detail", args=[client.pk]))
 
 
 def exchange_list(request):
@@ -479,30 +687,61 @@ def pending_summary(request):
     today = date.today()
     report_type = request.GET.get("report_type", "daily")  # daily, weekly, monthly
     
+    # Get as_of date for time-travel view
+    as_of_str = request.GET.get("date")
+    as_of = None
+    is_time_travel = False
+    
+    if as_of_str:
+        try:
+            as_of = date.fromisoformat(as_of_str)
+            is_time_travel = as_of < today
+        except (ValueError, TypeError):
+            as_of = None
+    
     # Calculate date range based on report type
     if report_type == "daily":
-        start_date = today
-        end_date = today
-        date_range_label = f"Today ({today.strftime('%B %d, %Y')})"
-    elif report_type == "weekly":
-        start_date = today - timedelta(days=7)
-        end_date = today
-        weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        today_weekday = today.weekday()
-        date_range_label = f"Weekly ({weekday_names[today_weekday]} to {weekday_names[today_weekday]}): {start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
-    elif report_type == "monthly":
-        day_of_month = today.day
-        if today.month == 1:
-            start_date = date(today.year - 1, 12, min(day_of_month, 31))
+        start_date = as_of if as_of else today
+        end_date = as_of if as_of else today
+        if as_of and as_of < today:
+            date_range_label = f"Historical View: {as_of.strftime('%B %d, %Y')} (READ-ONLY)"
         else:
-            last_month = today.month - 1
-            last_month_days = (date(today.year, today.month, 1) - timedelta(days=1)).day
-            start_date = date(today.year, last_month, min(day_of_month, last_month_days))
-        end_date = today
-        date_range_label = f"Monthly ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')})"
+            date_range_label = f"Today ({today.strftime('%B %d, %Y')})"
+    elif report_type == "weekly":
+        if as_of and as_of < today:
+            start_date = as_of - timedelta(days=7)
+            end_date = as_of
+            date_range_label = f"Historical Weekly: {start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')} (READ-ONLY)"
+        else:
+            start_date = today - timedelta(days=7)
+            end_date = today
+            weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            today_weekday = today.weekday()
+            date_range_label = f"Weekly ({weekday_names[today_weekday]} to {weekday_names[today_weekday]}): {start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
+    elif report_type == "monthly":
+        if as_of and as_of < today:
+            day_of_month = as_of.day
+            if as_of.month == 1:
+                start_date = date(as_of.year - 1, 12, min(day_of_month, 31))
+            else:
+                last_month = as_of.month - 1
+                last_month_days = (date(as_of.year, as_of.month, 1) - timedelta(days=1)).day
+                start_date = date(as_of.year, last_month, min(day_of_month, last_month_days))
+            end_date = as_of
+            date_range_label = f"Historical Monthly: {start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')} (READ-ONLY)"
+        else:
+            day_of_month = today.day
+            if today.month == 1:
+                start_date = date(today.year - 1, 12, min(day_of_month, 31))
+            else:
+                last_month = today.month - 1
+                last_month_days = (date(today.year, today.month, 1) - timedelta(days=1)).day
+                start_date = date(today.year, last_month, min(day_of_month, last_month_days))
+            end_date = today
+            date_range_label = f"Monthly ({start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')})"
     else:
-        start_date = today
-        end_date = today
+        start_date = as_of if as_of else today
+        end_date = as_of if as_of else today
         date_range_label = f"Today ({today.strftime('%B %d, %Y')})"
     
     # Get all active client exchanges
@@ -518,8 +757,8 @@ def pending_summary(request):
     you_owe_list = []  # Clients in profit (admin owes)
     
     for client_exchange in client_exchanges:
-        # Get data from separate ledgers
-        profit_loss_data = calculate_client_profit_loss(client_exchange)
+        # Get data from separate ledgers (as of date if time-travel)
+        profit_loss_data = calculate_client_profit_loss(client_exchange, as_of_date=as_of)
         pending_amount = profit_loss_data["pending_amount"]
         client_profit_loss = profit_loss_data["client_profit_loss"]
         
@@ -570,6 +809,8 @@ def pending_summary(request):
         "end_date": end_date,
         "date_range_label": date_range_label,
         "settings": settings,
+        "as_of": as_of if as_of else today,
+        "is_time_travel": is_time_travel,
     }
     return render(request, "core/pending/summary.html", context)
 
@@ -582,25 +823,55 @@ def report_overview(request):
     today = date.today()
     report_type = request.GET.get("report_type", "monthly")  # Default to monthly
     
-    # Overall totals
-    total_turnover = Transaction.objects.aggregate(total=Sum("amount"))["total"] or 0
+    # Time travel parameters
+    start_date_str = request.GET.get("start_date")
+    end_date_str = request.GET.get("end_date")
+    as_of_str = request.GET.get("date")
+    time_travel_mode = False
+    date_filter = {}
+    
+    if start_date_str and end_date_str:
+        time_travel_mode = True
+        start_date_filter = date.fromisoformat(start_date_str)
+        end_date_filter = date.fromisoformat(end_date_str)
+        date_filter = {"date__gte": start_date_filter, "date__lte": end_date_filter}
+    elif as_of_str:
+        time_travel_mode = True
+        as_of_filter = date.fromisoformat(as_of_str)
+        date_filter = {"date__lte": as_of_filter}
+    
+    # Base queryset with time travel filter if applicable
+    base_qs = Transaction.objects.filter(**date_filter) if date_filter else Transaction.objects.all()
+    
+    # Overall totals (filtered by time travel if applicable)
+    total_turnover = base_qs.aggregate(total=Sum("amount"))["total"] or 0
     your_total_profit = (
-        Transaction.objects.filter(transaction_type=Transaction.TYPE_PROFIT).aggregate(total=Sum("your_share_amount"))[
+        base_qs.filter(transaction_type=Transaction.TYPE_PROFIT).aggregate(total=Sum("your_share_amount"))[
             "total"
         ]
         or 0
     )
     company_profit = (
-        Transaction.objects.aggregate(total=Sum("company_share_amount"))["total"] or 0
+        base_qs.aggregate(total=Sum("company_share_amount"))["total"] or 0
     )
 
-    # Daily trends for last 30 days
-    start_date = today - timedelta(days=30)
+    # Daily trends for last 30 days (or filtered by time travel)
+    if time_travel_mode and start_date_str and end_date_str:
+        start_date = date.fromisoformat(start_date_str)
+        end_date = date.fromisoformat(end_date_str)
+        # Limit to 30 days or the actual range, whichever is smaller
+        days_diff = (end_date - start_date).days
+        if days_diff > 30:
+            start_date = end_date - timedelta(days=30)
+    else:
+        start_date = today - timedelta(days=30)
+        end_date = today
+    
     daily_data = defaultdict(lambda: {"profit": 0, "loss": 0, "turnover": 0})
     
-    daily_transactions = Transaction.objects.filter(
+    daily_transactions = base_qs.filter(
         date__gte=start_date,
-        date__lte=today
+        date__lte=end_date
     ).values("date", "transaction_type").annotate(
         profit_sum=Sum("your_share_amount", filter=Q(transaction_type=Transaction.TYPE_PROFIT)),
         loss_sum=Sum("your_share_amount", filter=Q(transaction_type=Transaction.TYPE_LOSS)),
@@ -626,8 +897,8 @@ def report_overview(request):
         loss_data.append(float(daily_data[current_date]["loss"]))
         turnover_data.append(float(daily_data[current_date]["turnover"]))
     
-    # Transaction type breakdown
-    type_breakdown = Transaction.objects.values("transaction_type").annotate(
+    # Transaction type breakdown (filtered by time travel if applicable)
+    type_breakdown = base_qs.values("transaction_type").annotate(
         count=Count("id"),
         total_amount=Sum("amount")
     )
@@ -637,10 +908,10 @@ def report_overview(request):
     type_colors = []
     
     type_map = {
-        Transaction.TYPE_PROFIT: ("Profit", "#16a34a"),
-        Transaction.TYPE_LOSS: ("Loss", "#dc2626"),
-        Transaction.TYPE_FUNDING: ("Funding", "#2563eb"),
-        Transaction.TYPE_SETTLEMENT: ("Settlement", "#7c3aed"),
+        Transaction.TYPE_PROFIT: ("Profit", "#6b7280"),
+        Transaction.TYPE_LOSS: ("Loss", "#9ca3af"),
+        Transaction.TYPE_FUNDING: ("Funding", "#4b5563"),
+        Transaction.TYPE_SETTLEMENT: ("Settlement", "#6b7280"),
     }
     
     for item in type_breakdown:
@@ -675,8 +946,8 @@ def report_overview(request):
         
         monthly_labels.insert(0, month_date.strftime("%b %Y"))
         
-        # Get transactions for this month
-        month_transactions = Transaction.objects.filter(
+        # Get transactions for this month (filtered by time travel if applicable)
+        month_transactions = base_qs.filter(
             date__gte=month_date,
             date__lte=month_end
         )
@@ -695,8 +966,8 @@ def report_overview(request):
         monthly_loss.insert(0, float(month_loss_val))
         monthly_turnover.insert(0, float(month_turnover_val))
     
-    # Top clients by profit (last 30 days)
-    top_clients = Transaction.objects.filter(
+    # Top clients by profit (last 30 days or filtered)
+    top_clients = base_qs.filter(
         date__gte=start_date,
         transaction_type=Transaction.TYPE_PROFIT
     ).values(
@@ -719,7 +990,7 @@ def report_overview(request):
         week_start = week_end - timedelta(days=6)
         weekly_labels.insert(0, f"Week {4-i} ({week_start.strftime('%b %d')} - {week_end.strftime('%b %d')})")
         
-        week_transactions = Transaction.objects.filter(
+        week_transactions = base_qs.filter(
             date__gte=week_start,
             date__lte=week_end
         )
@@ -738,6 +1009,9 @@ def report_overview(request):
         weekly_loss.insert(0, float(week_loss_val))
         weekly_turnover.insert(0, float(week_turnover_val))
 
+    # Time travel data
+    time_travel_transactions = base_qs.select_related("client_exchange", "client_exchange__client", "client_exchange__exchange").order_by("-date", "-created_at")[:50]
+    
     context = {
         "report_type": report_type,
         "total_turnover": total_turnover,
@@ -761,6 +1035,11 @@ def report_overview(request):
         "monthly_turnover": json.dumps(monthly_turnover),
         "client_labels": json.dumps(client_labels),
         "client_profits": json.dumps(client_profits),
+        "time_travel_mode": time_travel_mode,
+        "start_date_str": start_date_str,
+        "end_date_str": end_date_str,
+        "as_of_str": as_of_str,
+        "time_travel_transactions": time_travel_transactions,
     }
     return render(request, "core/reports/overview.html", context)
 
@@ -948,12 +1227,12 @@ def client_exchange_create(request, client_pk):
             my_share_decimal = Decimal(my_share)
             company_share_decimal = Decimal(company_share)
             
-            # Validate company share is less than my share
-            if company_share_decimal >= my_share_decimal:
+            # Validate company share is less than 100%
+            if company_share_decimal >= 100:
                 return render(request, "core/exchanges/link_to_client.html", {
                     "client": client,
                     "exchanges": exchanges,
-                    "error": "Company share must be less than your share",
+                    "error": "Company share must be less than 100%",
                 })
             
             client_exchange = ClientExchange.objects.create(
@@ -963,11 +1242,17 @@ def client_exchange_create(request, client_pk):
                 company_share_pct=company_share_decimal,
                 is_active=is_active,
             )
-            return redirect(reverse("clients:detail", args=[client.pk]))
+            # Redirect to appropriate namespace based on client type
+            if client.is_company_client:
+                return redirect(reverse("company_clients:detail", args=[client.pk]))
+            else:
+                return redirect(reverse("my_clients:detail", args=[client.pk]))
     
+    client_type = "company" if client.is_company_client else "my"
     return render(request, "core/exchanges/link_to_client.html", {
         "client": client,
         "exchanges": exchanges,
+        "client_type": client_type,
     })
 
 
@@ -983,8 +1268,8 @@ def client_exchange_edit(request, pk):
         my_share = Decimal(request.POST.get("my_share_pct"))
         company_share = Decimal(request.POST.get("company_share_pct"))
         
-        # Validate company share is less than my share
-        if company_share >= my_share:
+        # Validate company share is less than 100%
+        if company_share >= 100:
             exchanges = Exchange.objects.filter(is_active=True).order_by("name")
             days_remaining = (10 - days_since_creation) if can_edit_exchange else 0
             return render(request, "core/exchanges/edit_client_link.html", {
@@ -993,7 +1278,7 @@ def client_exchange_edit(request, pk):
                 "can_edit_exchange": can_edit_exchange,
                 "days_since_creation": days_since_creation,
                 "days_remaining": days_remaining,
-                "error": "Company share must be less than your share",
+                "error": "Company share must be less than 100%",
             })
         
         # Update exchange if within 10 days and exchange was provided
@@ -1038,11 +1323,16 @@ def client_exchange_edit(request, pk):
         client_exchange.company_share_pct = company_share
         client_exchange.is_active = request.POST.get("is_active") == "on"
         client_exchange.save()
-        return redirect(reverse("clients:detail", args=[client_exchange.client.pk]))
+        # Redirect to appropriate namespace based on client type
+        if client_exchange.client.is_company_client:
+            return redirect(reverse("company_clients:detail", args=[client_exchange.client.pk]))
+        else:
+            return redirect(reverse("my_clients:detail", args=[client_exchange.client.pk]))
     
     # GET request - prepare context
     exchanges = Exchange.objects.filter(is_active=True).order_by("name") if can_edit_exchange else None
     days_remaining = (10 - days_since_creation) if can_edit_exchange else 0
+    client_type = "company" if client_exchange.client.is_company_client else "my"
     
     return render(request, "core/exchanges/edit_client_link.html", {
         "client_exchange": client_exchange,
@@ -1050,6 +1340,7 @@ def client_exchange_edit(request, pk):
         "can_edit_exchange": can_edit_exchange,
         "days_since_creation": days_since_creation,
         "days_remaining": days_remaining,
+        "client_type": client_type,
     })
 
 
@@ -1070,11 +1361,12 @@ def transaction_create(request):
             client_exchange = get_object_or_404(ClientExchange, pk=client_exchange_id)
             
             # Auto-calculate shares based on client-exchange percentages
+            # Company share is taken from CLIENT's share, not from admin's share
             if tx_type == Transaction.TYPE_PROFIT:
                 your_share = amount * (client_exchange.my_share_pct / 100)
                 client_share = amount - your_share
-                company_share = your_share * (client_exchange.company_share_pct / 100)
-                your_share_after_company = your_share - company_share
+                company_share = client_share * (client_exchange.company_share_pct / 100)
+                your_share_after_company = your_share  # Admin keeps full share, company takes from client
             elif tx_type == Transaction.TYPE_LOSS:
                 your_share = amount * (client_exchange.my_share_pct / 100)
                 client_share = amount - your_share
@@ -1086,12 +1378,15 @@ def transaction_create(request):
                 company_share = Decimal(0)
                 your_share_after_company = Decimal(0)
             
+            # Client share amount should be after company deduction (for profit transactions)
+            client_share_after_company = client_share - company_share if tx_type == Transaction.TYPE_PROFIT else client_share
+            
             transaction = Transaction.objects.create(
                 client_exchange=client_exchange,
                 date=datetime.strptime(tx_date, "%Y-%m-%d").date(),
                 transaction_type=tx_type,
                 amount=amount,
-                client_share_amount=client_share,
+                client_share_amount=client_share_after_company,
                 your_share_amount=your_share_after_company,
                 company_share_amount=company_share,
                 note=note,
@@ -1137,11 +1432,12 @@ def transaction_edit(request, pk):
             client_exchange = transaction.client_exchange
             
             # Recalculate shares
+            # Company share is taken from CLIENT's share, not from admin's share
             if tx_type == Transaction.TYPE_PROFIT:
                 your_share = amount * (client_exchange.my_share_pct / 100)
                 client_share = amount - your_share
-                company_share = your_share * (client_exchange.company_share_pct / 100)
-                your_share_after_company = your_share - company_share
+                company_share = client_share * (client_exchange.company_share_pct / 100)
+                your_share_after_company = your_share  # Admin keeps full share, company takes from client
             elif tx_type == Transaction.TYPE_LOSS:
                 your_share = amount * (client_exchange.my_share_pct / 100)
                 client_share = amount - your_share
@@ -1153,10 +1449,13 @@ def transaction_edit(request, pk):
                 company_share = Decimal(0)
                 your_share_after_company = Decimal(0)
             
+            # Client share amount should be after company deduction (for profit transactions)
+            client_share_after_company = client_share - company_share if tx_type == Transaction.TYPE_PROFIT else client_share
+            
             transaction.date = datetime.strptime(tx_date, "%Y-%m-%d").date()
             transaction.transaction_type = tx_type
             transaction.amount = amount
-            transaction.client_share_amount = client_share
+            transaction.client_share_amount = client_share_after_company
             transaction.your_share_amount = your_share_after_company
             transaction.company_share_amount = company_share
             transaction.note = note
@@ -1217,6 +1516,7 @@ def get_latest_balance_for_exchange(request, client_pk):
                     "note": latest_balance.note or "",
                     "calculated_balance": str(calculated_balance),
                     "has_recorded_balance": True,
+                    "total_funding": str(total_funding),
                 })
             else:
                 return JsonResponse({
@@ -1226,6 +1526,7 @@ def get_latest_balance_for_exchange(request, client_pk):
                     "note": "",
                     "calculated_balance": str(calculated_balance),
                     "has_recorded_balance": False,
+                    "total_funding": str(total_funding),
                 })
         except ClientExchange.DoesNotExist:
             return JsonResponse({"success": False, "error": "Exchange not found"}, status=404)
@@ -1261,10 +1562,10 @@ def report_daily(request):
     type_amounts = []
     type_colors = []
     type_map = {
-        Transaction.TYPE_PROFIT: ("Profit", "#16a34a"),
-        Transaction.TYPE_LOSS: ("Loss", "#dc2626"),
-        Transaction.TYPE_FUNDING: ("Funding", "#2563eb"),
-        Transaction.TYPE_SETTLEMENT: ("Settlement", "#7c3aed"),
+        Transaction.TYPE_PROFIT: ("Profit", "#6b7280"),
+        Transaction.TYPE_LOSS: ("Loss", "#9ca3af"),
+        Transaction.TYPE_FUNDING: ("Funding", "#4b5563"),
+        Transaction.TYPE_SETTLEMENT: ("Settlement", "#6b7280"),
     }
     for item in type_data:
         tx_type = item["transaction_type"]
@@ -1360,10 +1661,10 @@ def report_weekly(request):
     type_amounts = []
     type_colors = []
     type_map = {
-        Transaction.TYPE_PROFIT: ("Profit", "#16a34a"),
-        Transaction.TYPE_LOSS: ("Loss", "#dc2626"),
-        Transaction.TYPE_FUNDING: ("Funding", "#2563eb"),
-        Transaction.TYPE_SETTLEMENT: ("Settlement", "#7c3aed"),
+        Transaction.TYPE_PROFIT: ("Profit", "#6b7280"),
+        Transaction.TYPE_LOSS: ("Loss", "#9ca3af"),
+        Transaction.TYPE_FUNDING: ("Funding", "#4b5563"),
+        Transaction.TYPE_SETTLEMENT: ("Settlement", "#6b7280"),
     }
     for item in type_data:
         tx_type = item["transaction_type"]
@@ -1457,10 +1758,10 @@ def report_monthly(request):
     type_amounts = []
     type_colors = []
     type_map = {
-        Transaction.TYPE_PROFIT: ("Profit", "#16a34a"),
-        Transaction.TYPE_LOSS: ("Loss", "#dc2626"),
-        Transaction.TYPE_FUNDING: ("Funding", "#2563eb"),
-        Transaction.TYPE_SETTLEMENT: ("Settlement", "#7c3aed"),
+        Transaction.TYPE_PROFIT: ("Profit", "#6b7280"),
+        Transaction.TYPE_LOSS: ("Loss", "#9ca3af"),
+        Transaction.TYPE_FUNDING: ("Funding", "#4b5563"),
+        Transaction.TYPE_SETTLEMENT: ("Settlement", "#6b7280"),
     }
     for item in type_data:
         tx_type = item["transaction_type"]
@@ -1700,10 +2001,10 @@ def report_exchange(request, exchange_pk):
     type_amounts = []
     type_colors = []
     type_map = {
-        Transaction.TYPE_PROFIT: ("Profit", "#16a34a"),
-        Transaction.TYPE_LOSS: ("Loss", "#dc2626"),
-        Transaction.TYPE_FUNDING: ("Funding", "#2563eb"),
-        Transaction.TYPE_SETTLEMENT: ("Settlement", "#7c3aed"),
+        Transaction.TYPE_PROFIT: ("Profit", "#6b7280"),
+        Transaction.TYPE_LOSS: ("Loss", "#9ca3af"),
+        Transaction.TYPE_FUNDING: ("Funding", "#4b5563"),
+        Transaction.TYPE_SETTLEMENT: ("Settlement", "#6b7280"),
     }
     for item in type_data:
         tx_type = item["transaction_type"]
@@ -1762,12 +2063,6 @@ def settings_view(request):
     if request.method == "POST":
         settings.weekly_report_day = int(request.POST.get("weekly_report_day", 0))
         settings.auto_generate_weekly_reports = request.POST.get("auto_generate_weekly_reports") == "on"
-        
-        # Update profit/loss configuration
-        settings.admin_profit_pct = Decimal(request.POST.get("admin_profit_pct", 11))
-        settings.admin_loss_pct = Decimal(request.POST.get("admin_loss_pct", 10))
-        settings.company_share_on_profit_pct = Decimal(request.POST.get("company_share_on_profit_pct", 40))
-        settings.company_share_on_loss_pct = Decimal(request.POST.get("company_share_on_loss_pct", 50))
         
         settings.save()
         return redirect(reverse("settings"))
@@ -1830,7 +2125,11 @@ def client_balance(request, client_pk):
                 if new_balance < previous_balance:
                     update_pending_from_balance_change(client_exchange, previous_balance, new_balance)
             
-            return redirect(reverse("clients:balance", args=[client.pk]) + (f"?exchange={client_exchange_id}" if client_exchange_id else ""))
+            # Redirect to appropriate namespace based on client type
+            if client.is_company_client:
+                return redirect(reverse("company_clients:balance", args=[client.pk]) + (f"?exchange={client_exchange_id}" if client_exchange_id else ""))
+            else:
+                return redirect(reverse("my_clients:balance", args=[client.pk]) + (f"?exchange={client_exchange_id}" if client_exchange_id else ""))
     
     # Check if editing a balance
     edit_balance_id = request.GET.get("edit_balance")
@@ -1934,6 +2233,16 @@ def client_balance(request, client_pk):
     
     all_daily_balances = daily_balance_qs.order_by("-date")[:30]
     
+    # Get all transactions for the selected exchange (or all exchanges if none selected)
+    if selected_exchange:
+        all_transactions = Transaction.objects.filter(
+            client_exchange=selected_exchange
+        ).select_related("client_exchange", "client_exchange__exchange").order_by("-date", "-created_at")
+    else:
+        all_transactions = Transaction.objects.filter(
+            client_exchange__client=client
+        ).select_related("client_exchange", "client_exchange__exchange").order_by("-date", "-created_at")
+    
     # Calculate total balance across all exchanges (or selected exchange)
     total_balance_all_exchanges = Decimal(0)
     for bal in exchange_balances:
@@ -1946,6 +2255,9 @@ def client_balance(request, client_pk):
     selected_exchange_name = None
     if selected_exchange and exchange_balances:
         selected_exchange_name = exchange_balances[0]["exchange"].name
+    
+    # Determine client type for URL namespace
+    client_type = "company" if client.is_company_client else "my"
     
     context = {
         "client": client,
@@ -1960,6 +2272,8 @@ def client_balance(request, client_pk):
         "selected_exchange_id": int(selected_exchange_id) if selected_exchange_id else None,
         "selected_exchange_name": selected_exchange_name,
         "settings": settings,
+        "client_type": client_type,
+        "all_transactions": all_transactions,
     }
     return render(request, "core/clients/balance.html", context)
 

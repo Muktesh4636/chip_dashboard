@@ -19,6 +19,7 @@ class Client(TimeStampedModel):
     code = models.CharField(max_length=50, unique=True, blank=True, null=True)
     referred_by = models.CharField(max_length=255, blank=True, null=True, help_text="Name of person who referred this client")
     is_active = models.BooleanField(default=True)
+    is_company_client = models.BooleanField(default=False, help_text="If True, this is a company client. If False, this is your personal client.")
 
     def __str__(self) -> str:
         if self.code:
@@ -56,7 +57,7 @@ class ClientExchange(TimeStampedModel):
     company_share_pct = models.DecimalField(
         max_digits=5,
         decimal_places=2,
-        help_text="Company share from your profit (%) - must be less than your share",
+        help_text="Company share percentage FROM CLIENT's share (%). Example: If your share is 30% and company share is 9%, company gets 9% of the client's 70% share. Must be less than 100.",
     )
 
     is_active = models.BooleanField(default=True)
@@ -67,8 +68,8 @@ class ClientExchange(TimeStampedModel):
 
     def clean(self):
         from django.core.exceptions import ValidationError
-        if self.company_share_pct >= self.my_share_pct:
-            raise ValidationError("Company share must be less than your share")
+        if self.company_share_pct >= 100:
+            raise ValidationError("Company share must be less than 100%")
 
     def __str__(self) -> str:
         return f"{self.client.name} - {self.exchange.name}"
@@ -264,30 +265,32 @@ class SystemSettings(models.Model):
     )
     auto_generate_weekly_reports = models.BooleanField(default=False, help_text="Automatically generate weekly reports")
     
-    # Admin Profit/Loss Configuration
-    admin_profit_pct = models.DecimalField(
+    # Loss Share Configuration (Admin & Company EARN from client loss)
+    admin_loss_share_pct = models.DecimalField(
         max_digits=5, 
         decimal_places=2, 
-        default=11.00,
-        help_text="Admin profit percentage on client loss (%)"
+        default=5.00,
+        help_text="Admin share percentage of client loss (admin earns this % of loss)"
     )
-    admin_loss_pct = models.DecimalField(
+    company_loss_share_pct = models.DecimalField(
         max_digits=5, 
         decimal_places=2, 
         default=10.00,
-        help_text="Admin loss percentage on client profit (%)"
+        help_text="Company share percentage of client loss (company earns this % of loss)"
     )
-    company_share_on_profit_pct = models.DecimalField(
+    
+    # Profit Share Configuration (Admin & Company PAY on client profit)
+    admin_profit_share_pct = models.DecimalField(
         max_digits=5, 
         decimal_places=2, 
-        default=40.00,
-        help_text="Company share percentage from admin profit (%)"
+        default=5.00,
+        help_text="Admin share percentage of client profit (admin pays this % of profit)"
     )
-    company_share_on_loss_pct = models.DecimalField(
+    company_profit_share_pct = models.DecimalField(
         max_digits=5, 
         decimal_places=2, 
-        default=50.00,
-        help_text="Company share percentage from admin loss (%)"
+        default=10.00,
+        help_text="Company share percentage of client profit (company pays this % of profit)"
     )
     
     class Meta:

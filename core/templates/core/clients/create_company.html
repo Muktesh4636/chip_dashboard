@@ -1,8 +1,8 @@
 {% extends "core/base.html" %}
 
-{% block title %}Add Client · Broker Portal{% endblock %}
-{% block page_title %}Add Client{% endblock %}
-{% block page_subtitle %}Create a new client profile{% endblock %}
+{% block title %}Add Company Client · Broker Portal{% endblock %}
+{% block page_title %}Add Company Client{% endblock %}
+{% block page_subtitle %}Create a new company client profile{% endblock %}
 
 {% block content %}
 <div class="card" style="max-width: 420px;">
@@ -20,18 +20,11 @@
             <label class="field-label">Referred By <span style="color: var(--muted); font-weight: normal;">(Optional)</span></label>
             <input type="text" name="referred_by" class="field-input" placeholder="Name of person who referred this client">
         </div>
-        <div class="form-row">
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                <input type="checkbox" name="is_company_client" style="width: 18px; height: 18px; cursor: pointer;">
-                <span class="field-label" style="margin: 0;">Company Client</span>
-            </label>
-            <div style="font-size: 13px; color: var(--muted); margin-top: 4px; margin-left: 26px;">
-                Check this if this is a company client. Leave unchecked for your personal clients.
-            </div>
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">Save Company Client</button>
+            <a href="{% url 'company_clients:list' %}" class="btn">Cancel</a>
         </div>
-        <button type="submit" class="btn btn-primary mt-3">Save Client</button>
     </form>
 </div>
 {% endblock %}
-
 
