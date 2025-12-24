@@ -211,7 +211,8 @@ def calculate_admin_profit_loss(client_profit_loss, settings, admin_profit_share
             company_earns = (client_share * client_exchange.company_share_pct) / Decimal(100)
         else:
             # For my clients or no client_exchange: use system settings (percentage of total loss)
-            company_earns = (client_loss * settings.company_loss_share_pct) / Decimal(100)
+            company_loss_pct = Decimal(str(settings.company_loss_share_pct))
+            company_earns = (client_loss * company_loss_pct) / Decimal(100)
         
         return {
             "admin_earns": admin_earns,
@@ -240,7 +241,8 @@ def calculate_admin_profit_loss(client_profit_loss, settings, admin_profit_share
             company_pays = (client_share * client_exchange.company_share_pct) / Decimal(100)
         else:
             # For my clients or no client_exchange: use system settings (percentage of total profit)
-            company_pays = (client_profit * settings.company_profit_share_pct) / Decimal(100)
+            company_profit_pct = Decimal(str(settings.company_profit_share_pct))
+            company_pays = (client_profit * company_profit_pct) / Decimal(100)
         
         return {
             "admin_earns": Decimal(0),
@@ -962,6 +964,9 @@ def pending_summary(request):
     # Get system settings
     settings = SystemSettings.load()
     
+    # Check if admin wants to combine my share and company share (for client sharing)
+    combine_shares = request.GET.get("combine_shares", "false").lower() == "true"
+    
     # Separate lists based on separate ledgers
     clients_owe_list = []  # Clients with pending amount (unpaid losses)
     you_owe_list = []  # Clients in profit (admin owes)
@@ -974,6 +979,40 @@ def pending_summary(request):
         
         # Clients with pending amount (unpaid losses)
         if pending_amount > 0:
+            # Calculate admin and company shares from the loss
+            # For losses, admin and company EARN (they get a share of the loss)
+            # Get total loss from LOSS transactions to calculate shares accurately
+            loss_transactions = Transaction.objects.filter(
+                client_exchange=client_exchange,
+                transaction_type=Transaction.TYPE_LOSS
+            )
+            total_loss = loss_transactions.aggregate(total=Sum("amount"))["total"] or Decimal(0)
+            
+            if total_loss > 0:
+                # Calculate admin and company earnings from the loss
+                my_share_pct = client_exchange.my_share_pct
+                my_share = (total_loss * my_share_pct) / Decimal(100)
+                
+                # Calculate company share
+                company_share = Decimal(0)
+                if client_exchange.client.is_company_client:
+                    # For company clients: company share is percentage of CLIENT's share (loss)
+                    client_share = total_loss - my_share
+                    company_share_pct = client_exchange.company_share_pct
+                    company_share = (client_share * company_share_pct) / Decimal(100)
+                else:
+                    # For my clients: use system settings (percentage of total loss)
+                    company_loss_pct = Decimal(str(settings.company_loss_share_pct))
+                    company_share = (total_loss * company_loss_pct) / Decimal(100)
+                
+                # Calculate combined share
+                combined_share = my_share + company_share
+            else:
+                # If no loss transactions, shares are 0
+                my_share = Decimal(0)
+                company_share = Decimal(0)
+                combined_share = Decimal(0)
+            
             clients_owe_list.append({
                 "client_id": client_exchange.client.pk,
                 "client_name": client_exchange.client.name,
@@ -982,6 +1021,9 @@ def pending_summary(request):
                 "exchange_id": client_exchange.exchange.pk,
                 "client_exchange_id": client_exchange.pk,
                 "pending_amount": pending_amount,
+                "my_share": my_share,  # Admin's share of loss (admin earns this)
+                "company_share": company_share,  # Company's share of loss (company earns this)
+                "combined_share": combined_share,  # Combined my share + company share
                 "total_funding": profit_loss_data["total_funding"],
                 "exchange_balance": profit_loss_data["exchange_balance"],
             })
@@ -1046,6 +1088,9 @@ def pending_summary(request):
             
             # Only show if there's unpaid profit
             if unpaid_profit > 0:
+                # Calculate combined share (always calculate it, but only show when combine_shares is True)
+                combined_share = my_share + company_share
+                
                 you_owe_list.append({
                     "client_id": client_exchange.client.pk,
                     "client_name": client_exchange.client.name,
@@ -1056,6 +1101,7 @@ def pending_summary(request):
                     "client_profit": unpaid_profit,  # Show unpaid amount, not total profit
                     "my_share": my_share,  # Admin's share of total profit
                     "company_share": company_share,  # Company's share of total profit (0 for non-company clients)
+                    "combined_share": combined_share,  # Combined my share + company share
                     "is_company_client": client_exchange.client.is_company_client,
                     "total_funding": profit_loss_data["total_funding"],
                     "exchange_balance": profit_loss_data["exchange_balance"],
@@ -1081,6 +1127,7 @@ def pending_summary(request):
         "end_date": end_date,
         "date_range_label": date_range_label,
         "settings": settings,
+        "combine_shares": combine_shares,  # Flag to show combined shares
     }
     return render(request, "core/pending/summary.html", context)
 

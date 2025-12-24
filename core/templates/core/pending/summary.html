@@ -355,6 +355,57 @@
         background: #f9fafb;
         border-color: #9ca3af;
     }
+    
+    .combine-shares-toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        padding: 8px 12px;
+        background: #f9fafb;
+        border-radius: 6px;
+        border: 1px solid #e5e7eb;
+        transition: all 0.2s;
+        user-select: none;
+        position: relative;
+        pointer-events: auto;
+    }
+    
+    .combine-shares-toggle:hover {
+        background: #f3f4f6;
+        border-color: #d1d5db;
+    }
+    
+    .combine-shares-toggle input[type="checkbox"] {
+        cursor: pointer;
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        pointer-events: auto;
+        z-index: 10;
+        position: relative;
+        flex-shrink: 0;
+        opacity: 1;
+        appearance: checkbox;
+        -webkit-appearance: checkbox;
+    }
+    
+    .combine-shares-toggle span {
+        font-size: 13px;
+        font-weight: 500;
+        color: #374151;
+    }
+    
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    
+    .section-header .section-title {
+        margin-bottom: 0;
+    }
 </style>
 
 <div class="pending-container">
@@ -379,9 +430,15 @@
 </div>
 
 <div id="section-clients-owe" class="section-content" style="display: block;">
-    <h2 class="section-title">
-        Clients Owe You (Pending Amount - Unpaid Losses)
-    </h2>
+    <div class="section-header">
+        <h2 class="section-title">
+            Clients Owe You (Pending Amount - Unpaid Losses)
+        </h2>
+        <label class="combine-shares-toggle" for="combine-shares-toggle-clients">
+            <input type="checkbox" id="combine-shares-toggle-clients" {% if combine_shares %}checked{% endif %} onchange="toggleCombineShares(this)" onclick="return true;">
+            <span>Combine My Share & Company Share</span>
+        </label>
+    </div>
     {% if total_pending %}
     <div class="summary-card">
         <div class="summary-amount">
@@ -405,6 +462,9 @@
                 <th>Total Funding</th>
                 <th>Exchange Balance</th>
                 <th>Pending Amount</th>
+                <th class="share-header my-share-header" {% if combine_shares %}style="display: none;"{% endif %}>My Share</th>
+                <th class="share-header company-share-header" {% if combine_shares %}style="display: none;"{% endif %}>Company Share</th>
+                <th class="share-header combined-share-header" {% if not combine_shares %}style="display: none;"{% endif %}>Combined Share (My + Company)</th>
                 <th>Actions</th>
             </tr>
             </thead>
@@ -421,6 +481,15 @@
                     <td>₹ {{ item.total_funding|floatformat:1 }}</td>
                     <td>₹ {{ item.exchange_balance|floatformat:1 }}</td>
                     <td><span class="amount-value">₹ {{ item.pending_amount|floatformat:1 }}</span></td>
+                    <td class="share-cell my-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}" {% if combine_shares %}style="display: none;"{% endif %}>
+                        <span class="amount-value">₹ {{ item.my_share|default:0|floatformat:1 }}</span>
+                    </td>
+                    <td class="share-cell company-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}" {% if combine_shares %}style="display: none;"{% endif %}>
+                        <span class="amount-value">₹ {{ item.company_share|default:0|floatformat:1 }}</span>
+                    </td>
+                    <td class="share-cell combined-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}" {% if not combine_shares %}style="display: none;"{% endif %}>
+                        <span class="amount-value">₹ {{ item.combined_share|default:0|floatformat:1 }}</span>
+                    </td>
                     <td>
                         <button onclick="showSettlementForm({{ item.client_id }}, {{ item.client_exchange_id }}, '{{ item.client_name }}', '{{ item.exchange_name }}', {{ item.pending_amount }}, 'client_pays')" class="action-button">
                             Record Payment
@@ -429,7 +498,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="7" class="empty-state">No pending amounts for the selected period.</td>
+                    <td colspan="9" class="empty-state">No pending amounts for the selected period.</td>
                 </tr>
             {% endfor %}
             </tbody>
@@ -438,9 +507,15 @@
 </div>
 
 <div id="section-you-owe" class="section-content" style="display: none;">
-    <h2 class="section-title">
-        You Owe Clients (Clients in Profit)
-    </h2>
+    <div class="section-header">
+        <h2 class="section-title">
+            You Owe Clients (Clients in Profit)
+        </h2>
+        <label class="combine-shares-toggle" for="combine-shares-toggle">
+            <input type="checkbox" id="combine-shares-toggle" {% if combine_shares %}checked{% endif %} onchange="toggleCombineShares(this)" onclick="return true;">
+            <span>Combine My Share & Company Share</span>
+        </label>
+    </div>
     {% if total_profit %}
     <div class="summary-card">
         <div class="summary-amount">
@@ -463,8 +538,9 @@
                 <th>Exchange</th>
                 <th>Total Funding</th>
                 <th>Exchange Balance</th>
-                <th>My Share</th>
-                <th>Company Share</th>
+                <th class="share-header my-share-header" {% if combine_shares %}style="display: none;"{% endif %}>My Share</th>
+                <th class="share-header company-share-header" {% if combine_shares %}style="display: none;"{% endif %}>Company Share</th>
+                <th class="share-header combined-share-header" {% if not combine_shares %}style="display: none;"{% endif %}>Combined Share (My + Company)</th>
                 <th>Actions</th>
             </tr>
             </thead>
@@ -480,8 +556,15 @@
                     <td>{{ item.exchange_name }}</td>
                     <td>₹ {{ item.total_funding|floatformat:1 }}</td>
                     <td>₹ {{ item.exchange_balance|floatformat:1 }}</td>
-                    <td><span class="amount-value">₹ {{ item.my_share|default:0|floatformat:1 }}</span></td>
-                    <td><span class="amount-value">₹ {{ item.company_share|default:0|floatformat:1 }}</span></td>
+                    <td class="share-cell my-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}" {% if combine_shares %}style="display: none;"{% endif %}>
+                        <span class="amount-value">₹ {{ item.my_share|default:0|floatformat:1 }}</span>
+                    </td>
+                    <td class="share-cell company-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}" {% if combine_shares %}style="display: none;"{% endif %}>
+                        <span class="amount-value">₹ {{ item.company_share|default:0|floatformat:1 }}</span>
+                    </td>
+                    <td class="share-cell combined-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}" {% if not combine_shares %}style="display: none;"{% endif %}>
+                        <span class="amount-value">₹ {{ item.combined_share|default:0|floatformat:1 }}</span>
+                    </td>
                     <td>
                         <button onclick="showSettlementForm({{ item.client_id }}, {{ item.client_exchange_id }}, '{{ item.client_name }}', '{{ item.exchange_name }}', {{ item.client_profit }}, 'admin_pays_profit')" class="action-button">
                             Pay Profit
@@ -714,7 +797,115 @@
         } else {
             showSection('clients-owe');
         }
+        
+        // Sync checkboxes if both exist
+        const checkboxClients = document.getElementById('combine-shares-toggle-clients');
+        const checkboxYouOwe = document.getElementById('combine-shares-toggle');
+        const combineShares = urlParams.get('combine_shares') === 'true';
+        
+        if (checkboxClients) {
+            checkboxClients.checked = combineShares;
+        }
+        if (checkboxYouOwe) {
+            checkboxYouOwe.checked = combineShares;
+        }
+        
+        // Initialize table columns based on current state
+        updateTableColumns(combineShares);
     });
+    
+    // Toggle combine shares view - smooth and instant without page reload
+    function toggleCombineShares(clickedCheckbox) {
+        if (!clickedCheckbox) {
+            const checkboxClients = document.getElementById('combine-shares-toggle-clients');
+            const checkboxYouOwe = document.getElementById('combine-shares-toggle');
+            clickedCheckbox = checkboxClients || checkboxYouOwe;
+        }
+        
+        if (!clickedCheckbox) return;
+        
+        const combineShares = clickedCheckbox.checked;
+        
+        // Update the other checkbox if it exists (to keep them in sync)
+        const checkboxClients = document.getElementById('combine-shares-toggle-clients');
+        const checkboxYouOwe = document.getElementById('combine-shares-toggle');
+        if (checkboxClients && checkboxYouOwe) {
+            checkboxClients.checked = combineShares;
+            checkboxYouOwe.checked = combineShares;
+        }
+        
+        // Update table headers and cells instantly without reload
+        updateTableColumns(combineShares);
+        
+        // Update URL without reload (for bookmarking/sharing)
+        const url = new URL(window.location);
+        if (combineShares) {
+            url.searchParams.set('combine_shares', 'true');
+        } else {
+            url.searchParams.delete('combine_shares');
+        }
+        window.history.replaceState({}, '', url);
+    }
+    
+    // Update table columns dynamically - smooth and instant
+    function updateTableColumns(combineShares) {
+        // Update both tables
+        ['#section-clients-owe table', '#section-you-owe table'].forEach(selector => {
+            const table = document.querySelector(selector);
+            if (!table) return;
+            
+            // Update headers
+            const myShareHeader = table.querySelector('.my-share-header');
+            const companyShareHeader = table.querySelector('.company-share-header');
+            const combinedShareHeader = table.querySelector('.combined-share-header');
+            
+            if (combineShares) {
+                // Show combined, hide separate
+                if (myShareHeader) myShareHeader.style.display = 'none';
+                if (companyShareHeader) companyShareHeader.style.display = 'none';
+                if (combinedShareHeader) combinedShareHeader.style.display = '';
+            } else {
+                // Show separate, hide combined
+                if (myShareHeader) myShareHeader.style.display = '';
+                if (companyShareHeader) companyShareHeader.style.display = '';
+                if (combinedShareHeader) combinedShareHeader.style.display = 'none';
+            }
+            
+            // Update body cells
+            const myShareCells = table.querySelectorAll('.my-share-cell');
+            const companyShareCells = table.querySelectorAll('.company-share-cell');
+            const combinedShareCells = table.querySelectorAll('.combined-share-cell');
+            
+            myShareCells.forEach((cell, index) => {
+                const myShare = parseFloat(cell.dataset.myShare || 0);
+                const companyShare = parseFloat(cell.dataset.companyShare || 0);
+                const combinedShare = parseFloat(cell.dataset.combinedShare || 0);
+                
+                if (combineShares) {
+                    // Hide separate columns, show combined
+                    cell.style.display = 'none';
+                    if (companyShareCells[index]) {
+                        companyShareCells[index].style.display = 'none';
+                    }
+                    if (combinedShareCells[index]) {
+                        combinedShareCells[index].style.display = '';
+                        combinedShareCells[index].innerHTML = `<span class="amount-value">₹ ${combinedShare.toFixed(1)}</span>`;
+                    }
+                } else {
+                    // Show separate columns, hide combined
+                    cell.style.display = '';
+                    cell.innerHTML = `<span class="amount-value">₹ ${myShare.toFixed(1)}</span>`;
+                    if (companyShareCells[index]) {
+                        companyShareCells[index].style.display = '';
+                        companyShareCells[index].innerHTML = `<span class="amount-value">₹ ${companyShare.toFixed(1)}</span>`;
+                    }
+                    if (combinedShareCells[index]) {
+                        combinedShareCells[index].style.display = 'none';
+                    }
+                }
+            });
+        });
+    }
 </script>
 </div>
 {% endblock %}
