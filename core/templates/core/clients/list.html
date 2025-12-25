@@ -90,7 +90,7 @@
                 </td>
                 <td onclick="window.location='{% url 'clients:detail' client.pk %}'" style="cursor:pointer;">{{ client.client_exchanges.count }}</td>
                 <td onclick="event.stopPropagation();" style="cursor:default;">
-                    <form method="post" action="{% url 'clients:delete' client.pk %}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete {{ client.name }}? This action cannot be undone.');">
+                    <form method="post" action="{% if client_type == 'company' %}{% url 'company_clients:delete' client.pk %}{% elif client_type == 'my' %}{% url 'my_clients:delete' client.pk %}{% else %}{% url 'clients:delete' client.pk %}{% endif %}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete {{ client.name }}? This action cannot be undone.');">
                         {% csrf_token %}
                         <button type="submit" class="btn btn-sm" style="background: var(--danger); color: white; padding: 4px 12px; font-size: 14px;">Delete</button>
                     </form>

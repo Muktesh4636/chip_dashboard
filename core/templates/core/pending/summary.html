@@ -714,10 +714,10 @@
                 paymentType: paymentType
             });
             
-            document.getElementById('settle-client-id').value = clientId;
-            document.getElementById('settle-client-exchange-id').value = clientExchangeId;
-            document.getElementById('settle-client-name').value = clientName;
-            document.getElementById('settle-exchange-name').value = exchangeName;
+        document.getElementById('settle-client-id').value = clientId;
+        document.getElementById('settle-client-exchange-id').value = clientExchangeId;
+        document.getElementById('settle-client-name').value = clientName;
+        document.getElementById('settle-exchange-name').value = exchangeName;
             document.getElementById('settle-payment-type').value = paymentType;
             
             // Store combined share for validation
@@ -732,41 +732,54 @@
                 amountInput.value = parseFloat(amount).toFixed(2);
                 amountInput.setAttribute('data-combined-share', '0');
             }
+        
+        // Preserve client_type filter in form
+            // First, try to get from existing hidden input (set by template)
+            let hiddenInput = document.querySelector('input[name="client_type"]');
+            let clientType = null;
             
-            // Preserve client_type filter in form
-            const urlParams = new URLSearchParams(window.location.search);
-            const clientType = urlParams.get('client_type');
-            // form is already declared above, don't redeclare
-            let hiddenInput = document.getElementById('settle-client-type');
-            if (clientType) {
-                if (!hiddenInput) {
-                    hiddenInput = document.createElement('input');
-                    hiddenInput.type = 'hidden';
-                    hiddenInput.name = 'client_type';
-                    hiddenInput.id = 'settle-client-type';
-                    form.appendChild(hiddenInput);
-                }
-                hiddenInput.value = clientType;
-            } else if (hiddenInput) {
-                hiddenInput.remove();
+            if (hiddenInput && hiddenInput.value) {
+                clientType = hiddenInput.value;
+                console.log('Using client_type from existing form input:', clientType);
+            } else {
+                // If not in form, get from URL
+        const urlParams = new URLSearchParams(window.location.search);
+                clientType = urlParams.get('client_type') || 'all';
+                console.log('Using client_type from URL:', clientType);
+                
+                // Create the hidden input if it doesn't exist
+            if (!hiddenInput) {
+                hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.name = 'client_type';
+                hiddenInput.id = 'settle-client-type';
+                form.appendChild(hiddenInput);
+            }
+            hiddenInput.value = clientType;
             }
             
-            // Update form title and button text based on payment type
-            const formTitle = document.querySelector('.modal-title');
+            // Always ensure the value is set (even if it's 'all')
+            if (hiddenInput) {
+                hiddenInput.value = clientType || 'all';
+                console.log('Final client_type set in form:', hiddenInput.value);
+        }
+        
+        // Update form title and button text based on payment type
+        const formTitle = document.querySelector('.modal-title');
             const submitButton = document.getElementById('settle-submit-button') || document.querySelector('.btn-primary');
-            const pendingInfo = document.getElementById('pending-info');
+        const pendingInfo = document.getElementById('pending-info');
             const shareInfo = document.getElementById('share-info');
-            const pendingAmountText = document.getElementById('pending-amount-text');
-            
-            if (paymentType === 'admin_pays_profit') {
-                formTitle.textContent = 'Pay Client Profit';
-                submitButton.textContent = 'Pay Client';
-                pendingInfo.style.display = 'none';
+        const pendingAmountText = document.getElementById('pending-amount-text');
+        
+        if (paymentType === 'admin_pays_profit') {
+            formTitle.textContent = 'Pay Client Profit';
+            submitButton.textContent = 'Pay Client';
+            pendingInfo.style.display = 'none';
                 shareInfo.style.display = 'none';
-                amountInput.max = '';
-            } else {
-                formTitle.textContent = 'Record Client Payment (Partial or Full)';
-                submitButton.textContent = 'Record Payment';
+            amountInput.max = '';
+        } else {
+            formTitle.textContent = 'Record Client Payment (Partial or Full)';
+            submitButton.textContent = 'Record Payment';
                 
                 // Show share breakdown and set amount to combined share
                 if (parseFloat(myShare) > 0 || parseFloat(companyShare) > 0 || parseFloat(combinedShare) > 0) {
@@ -826,10 +839,10 @@
                     }
                 } else {
                     shareInfo.style.display = 'none';
-                    pendingInfo.style.display = 'block';
-                    pendingAmountText.textContent = 'Pending Amount: ₹' + parseFloat(amount).toFixed(2);
-                    amountInput.max = parseFloat(amount).toFixed(2);
-                    amountInput.placeholder = 'Enter amount (up to ₹' + parseFloat(amount).toFixed(2) + ')';
+            pendingInfo.style.display = 'block';
+            pendingAmountText.textContent = 'Pending Amount: ₹' + parseFloat(amount).toFixed(2);
+            amountInput.max = parseFloat(amount).toFixed(2);
+            amountInput.placeholder = 'Enter amount (up to ₹' + parseFloat(amount).toFixed(2) + ')';
                 }
             }
             
@@ -910,10 +923,21 @@
             return false;
         }
         
-        // Ensure client_type is set
+        // Ensure client_type is set - use existing value first, then URL, then 'all'
+        let hiddenInput = document.querySelector('input[name="client_type"]');
+        let clientType = 'all';
+        
+        // First, try to get from existing hidden input (set by template)
+        if (hiddenInput && hiddenInput.value) {
+            clientType = hiddenInput.value;
+            console.log('Using client_type from form:', clientType);
+        } else {
+            // If not in form, get from URL
         const urlParams = new URLSearchParams(window.location.search);
-        const clientType = urlParams.get('client_type') || 'all';
-        let hiddenInput = document.getElementById('settle-client-type');
+            clientType = urlParams.get('client_type') || 'all';
+            console.log('Using client_type from URL:', clientType);
+            
+            // Create or update the hidden input
         if (!hiddenInput) {
             hiddenInput = document.createElement('input');
             hiddenInput.type = 'hidden';
@@ -922,6 +946,9 @@
             document.getElementById('settlement-form-content').appendChild(hiddenInput);
         }
         hiddenInput.value = clientType;
+        }
+        
+        console.log('Final client_type for form submission:', clientType);
         
         // Ensure report_type is set
         const reportType = urlParams.get('report_type') || 'daily';

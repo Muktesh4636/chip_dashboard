@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
+from decimal import Decimal
 
 
 class TimeStampedModel(models.Model):
@@ -257,6 +258,117 @@ class PendingAmount(TimeStampedModel):
     
     def __str__(self):
         return f"{self.client_exchange} - Pending: ₹{self.pending_amount}"
+
+
+class OutstandingAmount(TimeStampedModel):
+    """
+    Netted ledger for MY CLIENTS only.
+    Tracks the net payable amount of YOUR SHARE (losses and profits are netted).
+    
+    Outstanding = Net payable of YOUR SHARE
+    - Positive: Client owes you (unpaid loss share) → Client pays you
+    - Negative: You owe client (unpaid profit share) → Auto-settles and resets to 0
+    - Zero: All settled
+    
+    This is ONLY for My Clients (not company clients).
+    Company clients use PendingAmount (separate ledgers).
+    
+    Key Logic:
+    - Loss: Outstanding += your_share (client owes you more)
+    - Profit: Outstanding -= your_share (you owe client less, or client owes you less)
+    - If Outstanding < 0: Auto-create settlement (you pay client) and reset to 0
+    """
+    client_exchange = models.OneToOneField(
+        "ClientExchange", 
+        related_name="outstanding_amount_ledger", 
+        on_delete=models.CASCADE,
+        unique=True,
+        help_text="One outstanding ledger per client-exchange (My Clients only)"
+    )
+    outstanding_amount = models.DecimalField(
+        max_digits=14, 
+        decimal_places=2, 
+        default=Decimal(0),
+        help_text="Net outstanding amount (Your Share only). Positive = client owes you, negative = you owe client (auto-settles)"
+    )
+    note = models.TextField(blank=True, help_text="Optional note about outstanding amount")
+    
+    class Meta:
+        verbose_name_plural = "Outstanding Amounts"
+    
+    def __str__(self):
+        return f"{self.client_exchange} - Outstanding: ₹{self.outstanding_amount}"
+
+
+class TallyLedger(TimeStampedModel):
+    """
+    Tally ledger for COMPANY CLIENTS only.
+    Tracks separate amounts owed between you, client, and company.
+    Nothing is paid immediately - we only remember (tally) who owes whom.
+    Later, when profit comes, we adjust. At the end, we pay only the difference.
+    
+    For COMPANY CLIENTS:
+    - client_owes_you: Your direct share from losses (e.g., 10% of loss)
+    - company_owes_you: Company's portion from losses that you're owed (9% of loss)
+    - you_owe_client: Your direct share from profits (e.g., 10% of profit)
+    - you_owe_company: Company's portion from profits that you need to pay (9% of profit)
+    
+    Earnings (not paid, just recorded):
+    - Your earnings from losses: 1% of loss (from company share)
+    - Your earnings from profits: 1% of profit (from company share)
+    
+    Final payments are calculated as net amounts:
+    - Net to client = you_owe_client - client_owes_you
+    - Net to company = you_owe_company - company_owes_you
+    """
+    client_exchange = models.OneToOneField(
+        "ClientExchange",
+        related_name="tally_ledger",
+        on_delete=models.CASCADE,
+        unique=True,
+        help_text="One tally ledger per client-exchange (Company Clients only)"
+    )
+    client_owes_you = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal(0),
+        help_text="Client owes you (your direct share from losses, e.g., 10% of loss)"
+    )
+    company_owes_you = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal(0),
+        help_text="Company owes you (company's portion from losses, 9% of loss)"
+    )
+    you_owe_client = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal(0),
+        help_text="You owe client (your direct share from profits, e.g., 10% of profit)"
+    )
+    you_owe_company = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal(0),
+        help_text="You owe company (company's portion from profits, 9% of profit)"
+    )
+    note = models.TextField(blank=True, help_text="Optional note about tally ledger")
+    
+    class Meta:
+        verbose_name_plural = "Tally Ledgers"
+    
+    @property
+    def net_client_payable(self):
+        """Net amount you need to pay client (positive) or client owes you (negative)."""
+        return self.you_owe_client - self.client_owes_you
+    
+    @property
+    def net_company_payable(self):
+        """Net amount you need to pay company (positive) or company owes you (negative)."""
+        return self.you_owe_company - self.company_owes_you
+    
+    def __str__(self):
+        return f"{self.client_exchange} - Client: {self.net_client_payable}, Company: {self.net_company_payable}"
 
 
 class SystemSettings(models.Model):
