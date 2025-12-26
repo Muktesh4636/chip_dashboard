@@ -1473,7 +1473,7 @@ def transaction_list(request):
                 client_exchange__daily_balances__date=F('date')
             ).distinct()
         else:
-        transactions = transactions.filter(transaction_type=tx_type)
+            transactions = transactions.filter(transaction_type=tx_type)
     if search_query:
         transactions = transactions.filter(
             Q(client_exchange__client__name__icontains=search_query) |
