@@ -29,19 +29,6 @@
         margin: 0;
     }
     
-    .time-travel-section {
-        background: #f9fafb;
-        border-radius: 6px;
-        padding: 20px;
-        border: 1px solid #e5e7eb;
-    }
-    
-    .time-travel-form-row {
-        display: grid;
-        grid-template-columns: 1fr 1fr auto;
-        gap: 12px;
-        align-items: end;
-    }
     
     .form-group-compact {
         display: flex;
@@ -174,58 +161,12 @@
         margin-bottom: 20px;
     }
     
-    .time-travel-info {
-        margin-top: 16px;
-        padding-top: 16px;
-        border-top: 1px solid #e5e7eb;
-        font-size: 13px;
-        color: #6b7280;
-    }
 </style>
 
 <!-- Chart.js Library -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
 <div class="reports-wrapper">
-<!-- Time Travel Section -->
-<div class="time-travel-section">
-    <div class="section-header">
-        <h3>Time Travel Report</h3>
-        <p>View historical data for any date range</p>
-    </div>
-    <form method="get">
-        <input type="hidden" name="report_type" value="{{ report_type }}">
-        {% if client_type_filter %}<input type="hidden" name="client_type" value="{{ client_type_filter }}">{% endif %}
-        {% if selected_client_id %}<input type="hidden" name="client" value="{{ selected_client_id }}">{% endif %}
-        <div class="time-travel-form-row">
-            <div class="form-group-compact">
-                <label>Start Date</label>
-                <input type="date" name="start_date" value="{{ start_date_str|default:'' }}">
-            </div>
-            <div class="form-group-compact">
-                <label>End Date</label>
-                <input type="date" name="end_date" value="{{ end_date_str|default:'' }}">
-            </div>
-            <div style="display: flex; gap: 8px;">
-                <button type="submit" class="btn-compact btn-compact-primary">View Report</button>
-                {% if time_travel_mode %}
-                <a href="?report_type={{ report_type }}{% if client_type_filter %}&client_type={{ client_type_filter }}{% endif %}{% if selected_client_id %}&client={{ selected_client_id }}{% endif %}" class="btn-compact">Clear</a>
-                {% endif %}
-            </div>
-        </div>
-    </form>
-    {% if time_travel_mode %}
-    <div class="time-travel-info">
-        {% if start_date_str and end_date_str %}
-            Showing data from <strong>{{ start_date_str }}</strong> to <strong>{{ end_date_str }}</strong>
-        {% elif as_of_str %}
-            Showing all data up to <strong>{{ as_of_str }}</strong>
-        {% endif %}
-    </div>
-    {% endif %}
-</div>
-
-
 <!-- Client Selector -->
 <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 12px; padding: 16px; background: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;">
     <label style="font-size: 14px; font-weight: 500; color: #374151;">Filter by Client:</label>
@@ -338,7 +279,7 @@
 {% endif %}
 </div>
 
-<!-- Time Travel Transactions Table - Hidden during time travel -->
+<!-- Transactions Table -->
 
 <script>
 // Disable automatic scroll restoration

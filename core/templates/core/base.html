@@ -173,6 +173,89 @@
             color: #e5e7eb;
         }
 
+        /* Custom dropdown that always opens downward - pushes content down (no overlap) */
+        .client-filter-wrapper {
+            position: relative;
+            margin-bottom: 24px;
+            padding: 0 8px;
+        }
+        
+        /* When dropdown is open, add extra spacing to prevent overlap */
+        .client-filter-wrapper.open {
+            margin-bottom: 8px;
+        }
+        
+        .client-filter-button {
+            width: 100%;
+            padding: 10px 12px;
+            font-size: 14px;
+            background: #1f2937;
+            color: #ffffff;
+            border: 1px solid #374151;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.12s ease, border-color 0.12s ease;
+        }
+        
+        .client-filter-button:hover {
+            background: #374151;
+            border-color: #4b5563;
+        }
+        
+        .client-filter-button:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.2);
+        }
+        
+        .client-filter-button::after {
+            content: '▼';
+            font-size: 10px;
+            margin-left: 8px;
+            transition: transform 0.2s ease;
+        }
+        
+        .client-filter-wrapper.open .client-filter-button::after {
+            transform: rotate(180deg);
+        }
+        
+        .client-filter-dropdown {
+            position: relative;
+            margin-top: 8px;
+            margin-bottom: 16px;
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+            display: none;
+            overflow: hidden;
+        }
+        
+        .client-filter-wrapper.open .client-filter-dropdown {
+            display: block;
+        }
+        
+        .client-filter-option {
+            padding: 10px 12px;
+            color: #e5e7eb;
+            cursor: pointer;
+            transition: background 0.12s ease;
+            font-size: 14px;
+        }
+        
+        .client-filter-option:hover {
+            background: #374151;
+        }
+        
+        .client-filter-option.selected {
+            background: rgba(20, 184, 166, 0.2);
+            color: #a5f3fc;
+        }
+
         .main {
             flex: 1;
             margin-left: 280px;
@@ -409,13 +492,21 @@
         </div>
 
         <!-- Client Type Filter -->
-        <div style="margin-bottom: 24px; padding: 0 8px;">
+        <div class="client-filter-wrapper" id="client-filter-wrapper">
             <div style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; font-weight: 600;">Filter</div>
-            <select name="client_type" id="client-type-select" class="field-input" style="width: 100%; padding: 10px 12px; font-size: 14px; background: #1f2937; color: #ffffff; border: 1px solid #374151; border-radius: 6px;" onchange="updateClientTypeFilter(this.value)">
-                <option value="all" {% if client_type_filter == 'all' or not client_type_filter %}selected{% endif %}>All Clients</option>
-                <option value="my" {% if client_type_filter == 'my' %}selected{% endif %}>My Clients</option>
-                <option value="company" {% if client_type_filter == 'company' %}selected{% endif %}>Company Clients</option>
-            </select>
+            <button type="button" class="client-filter-button" id="client-filter-button">
+                <span id="client-filter-selected">
+                    {% if client_type_filter == 'my' %}My Clients
+                    {% elif client_type_filter == 'company' %}Company Clients
+                    {% else %}All Clients
+                    {% endif %}
+                </span>
+            </button>
+            <div class="client-filter-dropdown" id="client-filter-dropdown">
+                <div class="client-filter-option {% if client_type_filter == 'all' or not client_type_filter %}selected{% endif %}" data-value="all">All Clients</div>
+                <div class="client-filter-option {% if client_type_filter == 'my' %}selected{% endif %}" data-value="my">My Clients</div>
+                <div class="client-filter-option {% if client_type_filter == 'company' %}selected{% endif %}" data-value="company">Company Clients</div>
+            </div>
         </div>
         <script>
             function updateClientTypeFilter(value) {
@@ -426,6 +517,58 @@
                 // Redirect to updated URL
                 window.location.href = currentUrl.toString();
             }
+            
+            // Custom dropdown that always opens downward
+            document.addEventListener('DOMContentLoaded', function() {
+                const wrapper = document.getElementById('client-filter-wrapper');
+                const button = document.getElementById('client-filter-button');
+                const dropdown = document.getElementById('client-filter-dropdown');
+                const selectedText = document.getElementById('client-filter-selected');
+                const options = dropdown.querySelectorAll('.client-filter-option');
+                
+                if (!wrapper || !button || !dropdown) return;
+                
+                // Toggle dropdown on button click
+                button.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    wrapper.classList.toggle('open');
+                });
+                
+                // Handle option selection
+                options.forEach(option => {
+                    option.addEventListener('click', function() {
+                        const value = this.getAttribute('data-value');
+                        const text = this.textContent;
+                        
+                        // Update selected text
+                        selectedText.textContent = text;
+                        
+                        // Update selected state
+                        options.forEach(opt => opt.classList.remove('selected'));
+                        this.classList.add('selected');
+                        
+                        // Close dropdown
+                        wrapper.classList.remove('open');
+                        
+                        // Update filter
+                        updateClientTypeFilter(value);
+                    });
+                });
+                
+                // Close dropdown when clicking outside
+                document.addEventListener('click', function(e) {
+                    if (!wrapper.contains(e.target)) {
+                        wrapper.classList.remove('open');
+                    }
+                });
+                
+                // Close dropdown on escape key
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape' && wrapper.classList.contains('open')) {
+                        wrapper.classList.remove('open');
+                    }
+                });
+            });
         </script>
 
         <div class="nav-section-label">Main</div>

@@ -2068,6 +2068,19 @@ def pending_summary(request):
             
             # For my clients: net_amount is outstanding (Your Share only)
             # For company clients: net_amount is net client tally
+            # Get share percentages for display - ALWAYS fetch from ClientExchange (source of truth)
+            # CRITICAL: These percentages MUST be included in the data object for the template
+            my_share_pct = client_exchange.my_share_pct
+            if my_share_pct is None:
+                my_share_pct = Decimal(0)
+            
+            if client_exchange.client.is_company_client:
+                company_share_pct = client_exchange.company_share_pct
+                if company_share_pct is None:
+                    company_share_pct = Decimal(0)
+            else:
+                company_share_pct = Decimal(0)
+            
             clients_owe_list.append({
                 "client_id": client_exchange.client.pk,
                 "client_name": client_exchange.client.name,
@@ -2083,6 +2096,8 @@ def pending_summary(request):
                 "my_share": my_share,  # Admin's share of loss (admin earns this)
                 "company_share": company_share,  # Company's share of loss (company earns this, 0 for my clients)
                 "combined_share": combined_share,  # For my clients: my_share only; For company clients: my_share + company_share
+                "my_share_pct": my_share_pct,  # My share percentage
+                "company_share_pct": company_share_pct,  # Company share percentage
                 "is_company_client": client_exchange.client.is_company_client,  # Client type flag
             })
             # IMPORTANT: Skip "You Owe Clients" section if client has pending losses
@@ -2275,6 +2290,19 @@ def pending_summary(request):
                     current_balance = profit_loss_data["exchange_balance"]
                 # For my clients, old_balance and current_balance are already calculated above
                 
+                # Get share percentages for display - ALWAYS fetch from ClientExchange (source of truth)
+                # CRITICAL: These percentages MUST be included in the data object for the template
+                my_share_pct = client_exchange.my_share_pct
+                if my_share_pct is None:
+                    my_share_pct = Decimal(0)
+                
+                if client_exchange.client.is_company_client:
+                    company_share_pct = client_exchange.company_share_pct
+                    if company_share_pct is None:
+                        company_share_pct = Decimal(0)
+                else:
+                    company_share_pct = Decimal(0)
+                
                 you_owe_list.append({
                     "client_id": client_exchange.client.pk,
                     "client_name": client_exchange.client.name,
@@ -2286,6 +2314,8 @@ def pending_summary(request):
                     "my_share": my_share,  # Net amount you owe client (for company clients: 1% of profit = ₹9, for my clients: combined_share = ₹10)
                     "company_share": company_share,  # Company's retained portion (9% of profit = ₹81, informational only)
                     "combined_share": combined_share,  # For my clients: profit × my_share_pct (₹10), for company clients: total company portion (10% of profit = ₹90)
+                    "my_share_pct": my_share_pct,  # My share percentage
+                    "company_share_pct": company_share_pct,  # Company share percentage
                     "is_company_client": client_exchange.client.is_company_client,  # Client type flag
                     "total_funding": profit_loss_data["total_funding"],
                     "exchange_balance": profit_loss_data["exchange_balance"],
@@ -2480,13 +2510,22 @@ def export_pending_csv(request):
             if abs(old_balance - current_balance) < Decimal("0.01"):
                 continue
             
+            # Calculate percentages for CSV - ALWAYS fetch from ClientExchange (source of truth)
+            my_share_pct = client_exchange.my_share_pct or Decimal(0)
+            company_share_pct = (client_exchange.company_share_pct or Decimal(0)) if client_exchange.client.is_company_client else Decimal(0)
+            
             clients_owe_list.append({
                 "client_code": client_exchange.client.code,
                 "client_name": client_exchange.client.name,
                 "exchange_name": client_exchange.exchange.name,
                 "old_balance": old_balance,
                 "current_balance": current_balance,
+                "my_share": my_share,
+                "my_share_pct": my_share_pct,
+                "company_share": company_share,
+                "company_share_pct": company_share_pct,
                 "combined_share": combined_share,
+                "is_company_client": client_exchange.client.is_company_client,
             })
             continue
         
@@ -2587,13 +2626,22 @@ def export_pending_csv(request):
                     current_balance = profit_loss_data["exchange_balance"]
                 # For my clients, old_balance and current_balance are already calculated above
                 
+                # Calculate percentages for CSV - ALWAYS fetch from ClientExchange (source of truth)
+                my_share_pct = client_exchange.my_share_pct or Decimal(0)
+                company_share_pct = (client_exchange.company_share_pct or Decimal(0)) if client_exchange.client.is_company_client else Decimal(0)
+                
                 you_owe_list.append({
                     "client_code": client_exchange.client.code,
                     "client_name": client_exchange.client.name,
                     "exchange_name": client_exchange.exchange.name,
                     "old_balance": old_balance,
                     "current_balance": current_balance,
+                    "my_share": abs(my_share) if my_share < 0 else my_share,
+                    "my_share_pct": my_share_pct,
+                    "company_share": abs(company_share) if company_share < 0 else company_share,
+                    "company_share_pct": company_share_pct,
                     "combined_share": abs(combined_share) if combined_share < 0 else combined_share,
+                    "is_company_client": client_exchange.client.is_company_client,
                 })
     
     # Sort by amount (descending) - same as UI
@@ -2611,40 +2659,84 @@ def export_pending_csv(request):
     
     writer = csv.writer(response)
     
-    # Write header row (exactly matching UI table)
-    writer.writerow([
-        'Client Code',
-        'Client Name',
-        'Exchange',
-        'Old Balance',
-        'Current Balance',
-        'Combined Share (My + Company)',
-    ])
+    # Write header row (exactly matching UI table - Amount first, then percentage)
+    if client_type_filter == 'company' or client_type_filter == 'all':
+        # Company Clients: Show both My and Company columns
+        writer.writerow([
+            'Client Code',
+            'Client Name',
+            'Exchange',
+            'Old Balance',
+            'Current Balance',
+            'My Amount',
+            'My %',
+            'Company Amount',
+            'Company %',
+        ])
+    else:
+        # My Clients: Show only My columns
+        writer.writerow([
+            'Client Code',
+            'Client Name',
+            'Exchange',
+            'Old Balance',
+            'Current Balance',
+            'My Amount',
+            'My %',
+        ])
     
     # Write Clients Owe You section (if requested)
     # Use SAME data source as pending UI - one row per client, horizontal format
     if section in ["all", "clients-owe"] and clients_owe_list:
         for item in clients_owe_list:
-            writer.writerow([
-                item["client_code"] or '—',
-                item["client_name"],
-                item["exchange_name"],
-                float(item["old_balance"]),
-                float(item["current_balance"]),
-                float(item["combined_share"]),
-            ])
+            if client_type_filter == 'company' or client_type_filter == 'all':
+                writer.writerow([
+                    item["client_code"] or '—',
+                    item["client_name"],
+                    item["exchange_name"],
+                    float(item["old_balance"]),
+                    float(item["current_balance"]),
+                    float(item.get("my_share", 0)),
+                    float(item.get("my_share_pct", 0)),
+                    float(item.get("company_share", 0)),
+                    float(item.get("company_share_pct", 0)),
+                ])
+            else:
+                writer.writerow([
+                    item["client_code"] or '—',
+                    item["client_name"],
+                    item["exchange_name"],
+                    float(item["old_balance"]),
+                    float(item["current_balance"]),
+                    float(item.get("my_share", 0)),
+                    float(item.get("my_share_pct", 0)),
+                ])
     
     # Write You Owe Clients section (if requested)
     if section in ["all", "you-owe"] and you_owe_list:
         for item in you_owe_list:
-            writer.writerow([
-                item["client_code"] or '—',
-                item["client_name"],
-                item["exchange_name"],
-                float(item["old_balance"]),
-                float(item["current_balance"]),
-                float(item["combined_share"]),
-            ])
+            if client_type_filter == 'company' or client_type_filter == 'all':
+                writer.writerow([
+                    item["client_code"] or '—',
+                    item["client_name"],
+                    item["exchange_name"],
+                    float(item["old_balance"]),
+                    float(item["current_balance"]),
+                    float(item.get("my_share", 0)),
+                    float(item.get("my_share_pct", 0)),
+                    float(item.get("company_share", 0)),
+                    float(item.get("company_share_pct", 0)),
+                ])
+            else:
+                writer.writerow([
+                    item["client_code"] or '—',
+                    item["client_name"],
+                    item["exchange_name"],
+                    float(item["old_balance"]),
+                    float(item["current_balance"]),
+                    float(item.get("my_share", 0)),
+                    float(item.get("my_share_pct", 0)),
+                ])
     
     return response
 
@@ -4559,6 +4651,16 @@ def client_balance(request, client_pk):
         ).aggregate(total=Sum("client_share_amount"))["total"] or Decimal(0)
         pending_you_owe = max(Decimal(0), client_profit_share - client_settlements_paid)
         
+        # 🔹 Calculate Your Net Profit from this Client (till now)
+        # Formula: (Current Balance - Old Balance) × My Share %
+        # This is YOUR money (plus or minus) from this client
+        old_balance = get_old_balance_after_settlement(client_exchange)
+        current_balance = total_balance_in_exchange
+        net_change = current_balance - old_balance
+        my_share_pct = client_exchange.my_share_pct
+        your_net_profit = (net_change * my_share_pct) / Decimal(100)
+        your_net_profit = your_net_profit.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        
         exchange_balances.append({
             "client_exchange": client_exchange,
             "exchange": client_exchange.exchange,
@@ -4591,6 +4693,9 @@ def client_balance(request, client_pk):
             "company_pays": admin_data.get("company_pays", Decimal(0)),
             "company_share_pct": client_exchange.company_share_pct if client.is_company_client else Decimal(0),
             "my_share_pct": client_exchange.my_share_pct,
+            "your_net_profit": your_net_profit,  # Your Net Profit from this Client (till now)
+            "old_balance": old_balance,  # For reference/debugging
+            "current_balance": current_balance,  # For reference/debugging
         })
     
     # Get all daily balances for the client (for summary view)

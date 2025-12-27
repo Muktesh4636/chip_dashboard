@@ -443,10 +443,12 @@
             <a href="{% url 'pending:export_csv' %}?report_type={{ report_type }}&section=clients-owe{% if client_type_filter != 'all' %}&client_type={{ client_type_filter }}{% endif %}" class="btn" style="text-decoration: none; padding: 8px 16px; font-size: 14px;">
                 📥 Download CSV Report
             </a>
+            {% if client_type_filter == 'company' or client_type_filter == 'all' %}
             <label class="combine-shares-toggle" for="combine-shares-toggle-clients">
                 <input type="checkbox" id="combine-shares-toggle-clients" {% if combine_shares %}checked{% endif %} onchange="toggleCombineShares(this)" onclick="return true;">
                 <span>Combine My Share & Company Share</span>
             </label>
+            {% endif %}
         </div>
     </div>
     {% if total_pending %}
@@ -471,9 +473,13 @@
                 <th>Exchange</th>
                 <th>Old Balance</th>
                 <th>Current Balance</th>
-                <th class="share-header my-share-header">My Share</th>
-                <th class="share-header company-share-header">Company Share</th>
-                <th class="share-header combined-share-header" style="display: none;">Combined Share (My + Company)</th>
+                <th class="share-header my-share-header">My Amount</th>
+                <th class="share-header my-share-header">My %</th>
+                {% if client_type_filter == 'company' or client_type_filter == 'all' %}
+                <th class="share-header company-share-header company-only">Company Amount</th>
+                <th class="share-header company-share-header company-only">Company %</th>
+                {% endif %}
+                <th class="share-header combined-share-header" style="display: none;">Company %</th>
                 <th>Actions</th>
             </tr>
             </thead>
@@ -489,14 +495,38 @@
                     <td>{{ item.exchange_name }}</td>
                     <td>₹ {{ item.old_balance|floatformat:1 }}</td>
                     <td>₹ {{ item.exchange_balance|floatformat:1 }}</td>
-                    <td class="share-cell my-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}">
+                    <td class="share-cell my-share-amount-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}">
                         <span class="amount-value">₹ {{ item.my_share|default:0|floatformat:1 }}</span>
                     </td>
-                    <td class="share-cell company-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}">
+                    <td class="share-cell my-share-pct-cell" data-my-share-pct="{{ item.my_share_pct|default:0 }}">
+                        {% if item.my_share_pct is not None %}
+                            <span style="font-size: 13px; color: #6b7280; font-weight: 500;">{{ item.my_share_pct|floatformat:1 }}%</span>
+                        {% else %}
+                            <span style="color: #dc2626; font-size: 11px;" title="Percentage not set in database">⚠️ N/A</span>
+                        {% endif %}
+                    </td>
+                    {% if client_type_filter == 'company' or client_type_filter == 'all' %}
+                    <td class="share-cell company-share-amount-cell company-only" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}">
                         <span class="amount-value">₹ {{ item.company_share|default:0|floatformat:1 }}</span>
                     </td>
-                    <td class="share-cell combined-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}" style="display: none;">
-                        <span class="amount-value">₹ {{ item.combined_share|default:0|floatformat:1 }}</span>
+                    <td class="share-cell company-share-pct-cell company-only" data-company-share-pct="{{ item.company_share_pct|default:0 }}">
+                        {% if item.is_company_client %}
+                            {% if item.company_share_pct is not None %}
+                                <span style="font-size: 13px; color: #6b7280; font-weight: 500;">{{ item.company_share_pct|floatformat:1 }}%</span>
+                            {% else %}
+                                <span style="color: #dc2626; font-size: 11px;" title="Percentage not set in database">⚠️ N/A</span>
+                            {% endif %}
+                        {% else %}
+                            <span style="color: #9ca3af;">—</span>
+                        {% endif %}
+                    </td>
+                    {% endif %}
+                    <td class="share-cell combined-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}" data-company-share-pct="{{ item.company_share_pct|default:0 }}" data-is-company-client="{{ item.is_company_client|yesno:'true,false' }}" style="display: none;">
+                        {% if item.is_company_client and item.company_share_pct is not None %}
+                            <span style="font-size: 13px; color: #6b7280; font-weight: 500;">{{ item.company_share_pct|floatformat:1 }}%</span>
+                        {% else %}
+                            <span style="color: #9ca3af;">—</span>
+                        {% endif %}
                     </td>
                     <td>
                         <button onclick="console.log('Button clicked!'); showSettlementForm({{ item.client_id }}, {{ item.client_exchange_id }}, '{{ item.client_name|escapejs }}', '{{ item.exchange_name|escapejs }}', {{ item.pending_amount }}, 'client_pays', {{ item.my_share|default:0 }}, {{ item.company_share|default:0 }}, {{ item.combined_share|default:0 }}, {{ item.is_company_client|yesno:"true,false" }})" class="action-button">
@@ -506,7 +536,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="8" class="empty-state">No pending amounts for the selected period.</td>
+                    <td colspan="{% if client_type_filter == 'company' or client_type_filter == 'all' %}10{% else %}8{% endif %}" class="empty-state">No pending amounts for the selected period.</td>
                 </tr>
             {% endfor %}
             </tbody>
@@ -523,10 +553,12 @@
             <a href="{% url 'pending:export_csv' %}?report_type={{ report_type }}&section=you-owe{% if client_type_filter != 'all' %}&client_type={{ client_type_filter }}{% endif %}" class="btn" style="text-decoration: none; padding: 8px 16px; font-size: 14px;">
                 📥 Download CSV Report
             </a>
+            {% if client_type_filter == 'company' or client_type_filter == 'all' %}
             <label class="combine-shares-toggle" for="combine-shares-toggle">
                 <input type="checkbox" id="combine-shares-toggle" {% if combine_shares %}checked{% endif %} onchange="toggleCombineShares(this)" onclick="return true;">
                 <span>Combine My Share & Company Share</span>
             </label>
+            {% endif %}
         </div>
     </div>
     {% if total_profit %}
@@ -551,9 +583,13 @@
                 <th>Exchange</th>
                 <th>Total Funding</th>
                 <th>Exchange Balance</th>
-                <th class="share-header my-share-header">My Share</th>
-                <th class="share-header company-share-header">Company Share</th>
-                <th class="share-header combined-share-header" style="display: none;">Combined Share (My + Company)</th>
+                <th class="share-header my-share-header">My Amount</th>
+                <th class="share-header my-share-header">My %</th>
+                {% if client_type_filter == 'company' or client_type_filter == 'all' %}
+                <th class="share-header company-share-header company-only">Company Amount</th>
+                <th class="share-header company-share-header company-only">Company %</th>
+                {% endif %}
+                <th class="share-header combined-share-header" style="display: none;">Company %</th>
                 <th>Actions</th>
             </tr>
             </thead>
@@ -569,14 +605,38 @@
                     <td>{{ item.exchange_name }}</td>
                     <td>₹ {{ item.total_funding|floatformat:1 }}</td>
                     <td>₹ {{ item.exchange_balance|floatformat:1 }}</td>
-                    <td class="share-cell my-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}">
+                    <td class="share-cell my-share-amount-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}">
                         <span class="amount-value">₹ {{ item.my_share|default:0|floatformat:1 }}</span>
                     </td>
-                    <td class="share-cell company-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}">
+                    <td class="share-cell my-share-pct-cell">
+                        {% if item.my_share_pct is not None %}
+                            <span style="font-size: 13px; color: #6b7280; font-weight: 500;">{{ item.my_share_pct|floatformat:1 }}%</span>
+                        {% else %}
+                            <span style="color: #dc2626; font-size: 11px;" title="Percentage not set in database">⚠️ N/A</span>
+                        {% endif %}
+                    </td>
+                    {% if client_type_filter == 'company' or client_type_filter == 'all' %}
+                    <td class="share-cell company-share-amount-cell company-only" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}">
                         <span class="amount-value">₹ {{ item.company_share|default:0|floatformat:1 }}</span>
                     </td>
-                    <td class="share-cell combined-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}" style="display: none;">
-                        <span class="amount-value">₹ {{ item.combined_share|default:0|floatformat:1 }}</span>
+                    <td class="share-cell company-share-pct-cell company-only" data-company-share-pct="{{ item.company_share_pct|default:0 }}">
+                        {% if item.is_company_client %}
+                            {% if item.company_share_pct is not None %}
+                                <span style="font-size: 13px; color: #6b7280; font-weight: 500;">{{ item.company_share_pct|floatformat:1 }}%</span>
+                            {% else %}
+                                <span style="color: #dc2626; font-size: 11px;" title="Percentage not set in database">⚠️ N/A</span>
+                            {% endif %}
+                        {% else %}
+                            <span style="color: #9ca3af;">—</span>
+                        {% endif %}
+                    </td>
+                    {% endif %}
+                    <td class="share-cell combined-share-cell" data-my-share="{{ item.my_share|default:0 }}" data-company-share="{{ item.company_share|default:0 }}" data-combined-share="{{ item.combined_share|default:0 }}" data-company-share-pct="{{ item.company_share_pct|default:0 }}" data-is-company-client="{{ item.is_company_client|yesno:'true,false' }}" style="display: none;">
+                        {% if item.is_company_client and item.company_share_pct is not None %}
+                            <span style="font-size: 13px; color: #6b7280; font-weight: 500;">{{ item.company_share_pct|floatformat:1 }}%</span>
+                        {% else %}
+                            <span style="color: #9ca3af;">—</span>
+                        {% endif %}
                     </td>
                     <td>
                         <button onclick="showSettlementForm({{ item.client_id }}, {{ item.client_exchange_id }}, '{{ item.client_name|escapejs }}', '{{ item.exchange_name|escapejs }}', {{ item.client_profit }}, 'admin_pays_profit', 0, 0, 0, {{ item.is_company_client|yesno:"true,false" }})" class="action-button">
@@ -586,7 +646,7 @@
                 </tr>
             {% empty %}
                 <tr>
-                    <td colspan="8" class="empty-state">You don't owe any clients for the selected period.</td>
+                    <td colspan="{% if client_type_filter == 'company' or client_type_filter == 'all' %}10{% else %}8{% endif %}" class="empty-state">You don't owe any clients for the selected period.</td>
                 </tr>
             {% endfor %}
             </tbody>
@@ -1281,50 +1341,80 @@
             if (!table) return;
             
             // Update headers
-            const myShareHeader = table.querySelector('.my-share-header');
-            const companyShareHeader = table.querySelector('.company-share-header');
+            const myShareHeaders = table.querySelectorAll('.my-share-header');
+            const companyShareHeaders = table.querySelectorAll('.company-share-header');
             const combinedShareHeader = table.querySelector('.combined-share-header');
             
             if (combineShares) {
                 // Show combined, hide separate
-                if (myShareHeader) myShareHeader.style.display = 'none';
-                if (companyShareHeader) companyShareHeader.style.display = 'none';
+                // Hide My Amount and My % headers
+                myShareHeaders.forEach(header => header.style.display = 'none');
+                // Hide Company Amount and Company % headers
+                companyShareHeaders.forEach(header => header.style.display = 'none');
                 if (combinedShareHeader) combinedShareHeader.style.display = '';
             } else {
                 // Show separate, hide combined
-                if (myShareHeader) myShareHeader.style.display = '';
-                if (companyShareHeader) companyShareHeader.style.display = '';
+                // Show My Amount and My % headers
+                myShareHeaders.forEach(header => header.style.display = '');
+                // Show Company Amount and Company % headers
+                companyShareHeaders.forEach(header => header.style.display = '');
                 if (combinedShareHeader) combinedShareHeader.style.display = 'none';
             }
             
-            // Update body cells
-            const myShareCells = table.querySelectorAll('.my-share-cell');
-            const companyShareCells = table.querySelectorAll('.company-share-cell');
+            // Update body cells - ONLY target amount cells, NOT percentage cells
+            const myShareAmountCells = table.querySelectorAll('.my-share-amount-cell');
+            const companyShareAmountCells = table.querySelectorAll('.company-share-amount-cell');
             const combinedShareCells = table.querySelectorAll('.combined-share-cell');
             
-            myShareCells.forEach((cell, index) => {
+            myShareAmountCells.forEach((cell, index) => {
                 const myShare = parseFloat(cell.dataset.myShare || 0);
                 const companyShare = parseFloat(cell.dataset.companyShare || 0);
                 const combinedShare = parseFloat(cell.dataset.combinedShare || 0);
                 
                 if (combineShares) {
                     // Hide separate columns, show combined
+                    // Hide My Amount and My % cells
                     cell.style.display = 'none';
-                    if (companyShareCells[index]) {
-                        companyShareCells[index].style.display = 'none';
+                    const mySharePctCell = cell.parentElement.querySelector('.my-share-pct-cell');
+                    if (mySharePctCell) mySharePctCell.style.display = 'none';
+                    
+                    // Hide Company Amount and Company % cells (for company clients)
+                    if (companyShareAmountCells[index]) {
+                        companyShareAmountCells[index].style.display = 'none';
                     }
+                    const companySharePctCell = cell.parentElement.querySelector('.company-share-pct-cell');
+                    if (companySharePctCell) companySharePctCell.style.display = 'none';
+                    
+                    // Show combined share column with company percentage
                     if (combinedShareCells[index]) {
                         combinedShareCells[index].style.display = '';
-                        combinedShareCells[index].innerHTML = `<span class="amount-value">₹ ${combinedShare.toFixed(1)}</span>`;
+                        // Show company percentage in combined share column
+                        const companySharePct = parseFloat(combinedShareCells[index].dataset.companySharePct || 0);
+                        const isCompanyClient = combinedShareCells[index].dataset.isCompanyClient === 'true';
+                        if (isCompanyClient && companySharePct > 0) {
+                            combinedShareCells[index].innerHTML = `<span style="font-size: 13px; color: #6b7280; font-weight: 500;">${companySharePct.toFixed(1)}%</span>`;
+                        } else {
+                            combinedShareCells[index].innerHTML = `<span style="color: #9ca3af;">—</span>`;
+                        }
                     }
                 } else {
                     // Show separate columns, hide combined
                     cell.style.display = '';
                     cell.innerHTML = `<span class="amount-value">₹ ${myShare.toFixed(1)}</span>`;
-                    if (companyShareCells[index]) {
-                        companyShareCells[index].style.display = '';
-                        companyShareCells[index].innerHTML = `<span class="amount-value">₹ ${companyShare.toFixed(1)}</span>`;
+                    
+                    // Show My % cell
+                    const mySharePctCell = cell.parentElement.querySelector('.my-share-pct-cell');
+                    if (mySharePctCell) mySharePctCell.style.display = '';
+                    
+                    // Show Company Amount and Company % cells (for company clients)
+                    if (companyShareAmountCells[index]) {
+                        companyShareAmountCells[index].style.display = '';
+                        companyShareAmountCells[index].innerHTML = `<span class="amount-value">₹ ${companyShare.toFixed(1)}</span>`;
                     }
+                    const companySharePctCell = cell.parentElement.querySelector('.company-share-pct-cell');
+                    if (companySharePctCell) companySharePctCell.style.display = '';
+                    
+                    // Hide combined share column
                     if (combinedShareCells[index]) {
                         combinedShareCells[index].style.display = 'none';
                     }
