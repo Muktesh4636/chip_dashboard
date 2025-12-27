@@ -2004,6 +2004,8 @@ def pending_summary(request):
                     # Client is in LOSS
                     # Get my_share_pct from client_exchange
                     my_share_pct = client_exchange.my_share_pct
+                    if my_share_pct is None:
+                        my_share_pct = Decimal(0)
                     
                     # Calculate My Share = Net Loss × My Share %
                     my_share_from_net_loss = (net_loss * my_share_pct) / Decimal(100)
@@ -2025,6 +2027,10 @@ def pending_summary(request):
                 else:
                     # Client is in profit or break-even - no pending
                     my_share = Decimal(0)
+                    # Still get my_share_pct for display purposes
+                    my_share_pct = client_exchange.my_share_pct
+                    if my_share_pct is None:
+                        my_share_pct = Decimal(0)
             else:
                 # COMPANY CLIENTS: Use net_client_tally (which already accounts for company share)
                 my_share = net_client_tally
@@ -2877,7 +2883,7 @@ def export_pending_csv(request):
             'Current Balance',
             'Total Loss',
             'Combined Share (My + Company)',
-            'My Share & Company Share (%)',
+            'My Share & Company Share (%)' if (client_type_filter == 'company' or client_type_filter == 'all') else 'My Share %',
         ]
         # Write headers in uppercase for better visibility
         writer.writerow([h.upper() for h in headers])
