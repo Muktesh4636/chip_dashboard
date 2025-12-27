@@ -13,7 +13,7 @@ from django.views.decorators.http import require_http_methods
 from .models import Client, Exchange, ClientExchange, Transaction, CompanyShareRecord, SystemSettings, ClientDailyBalance, OutstandingAmount
 
 
-def get_exchange_balance(client_exchange, as_of_date=None):
+def get_exchange_balance(client_exchange, as_of_date=None, use_cache=True):
     """
     Get exchange balance (separate ledger) as of a specific date.
     Exchange balance = latest recorded balance + extra adjustment up to as_of_date.
@@ -21,7 +21,23 @@ def get_exchange_balance(client_exchange, as_of_date=None):
     Args:
         client_exchange: ClientExchange instance
         as_of_date: Optional date to calculate as of. If None, uses current state.
+        use_cache: If True and as_of_date is None, use cached value if available.
+    
+    Returns:
+        Exchange balance as Decimal
     """
+    # Use cached value if available and no specific date requested
+    if use_cache and as_of_date is None:
+        # Refresh cache if it's stale (older than 1 hour) or doesn't exist
+        from django.utils import timezone
+        from datetime import timedelta
+        if client_exchange.balance_last_updated:
+            cache_age = timezone.now() - client_exchange.balance_last_updated
+            if cache_age < timedelta(hours=1):
+                return client_exchange.cached_current_balance or Decimal(0)
+        # Cache is stale or missing, calculate fresh
+        # (signals will update cache automatically)
+    
     balance_filter = {"client_exchange": client_exchange}
     if as_of_date:
         balance_filter["date__lte"] = as_of_date
@@ -1351,12 +1367,12 @@ def settle_payment(request):
                     if not client_exchange.client.is_company_client:
                         # MY CLIENTS: Admin receives payment directly
                         transaction = Transaction.objects.create(
-                            client_exchange=client_exchange,
-                            date=datetime.strptime(tx_date, "%Y-%m-%d").date(),
-                            transaction_type=Transaction.TYPE_SETTLEMENT,
-                            amount=transaction_amount,
+                        client_exchange=client_exchange,
+                        date=datetime.strptime(tx_date, "%Y-%m-%d").date(),
+                        transaction_type=Transaction.TYPE_SETTLEMENT,
+                        amount=transaction_amount,
                             client_share_amount=Decimal(0),  # Client pays
-                            your_share_amount=my_share_amount,  # Admin receives My Share
+                        your_share_amount=my_share_amount,  # Admin receives My Share
                             company_share_amount=Decimal(0),  # No company share for my clients
                             note=note_text,
                         )
@@ -1454,28 +1470,28 @@ def settle_payment(request):
                         
                         # Create SETTLEMENT transaction where admin pays client
                         transaction = Transaction.objects.create(
-                        client_exchange=client_exchange,
-                        date=datetime.strptime(tx_date, "%Y-%m-%d").date(),
-                        transaction_type=Transaction.TYPE_SETTLEMENT,
-                        amount=amount,
-                        client_share_amount=amount,  # Client receives
-                        your_share_amount=Decimal(0),  # Admin pays, doesn't receive
-                        company_share_amount=Decimal(0),
-                        note=note or f"Admin payment for client profit",
+                            client_exchange=client_exchange,
+                            date=datetime.strptime(tx_date, "%Y-%m-%d").date(),
+                            transaction_type=Transaction.TYPE_SETTLEMENT,
+                            amount=amount,
+                            client_share_amount=amount,  # Client receives
+                            your_share_amount=Decimal(0),  # Admin pays, doesn't receive
+                            company_share_amount=Decimal(0),
+                            note=note or f"Admin payment for client profit",
                         )
                         
                         from django.contrib import messages
                         messages.success(request, f"Payment of ₹{amount} recorded successfully for {client.name} - {client_exchange.exchange.name}. Client will no longer appear in 'You Owe Clients'.")
                         
                         # Debug print removed to prevent BrokenPipeError
-                        
-                        # Ensure session is saved before redirect
-                        request.session.modified = True
-                        
-                        redirect_url = f"?section=you-owe&report_type={report_type}"
-                        if client_type_filter and client_type_filter != 'all':
-                            redirect_url += f"&client_type={client_type_filter}"
-                        return redirect(reverse("pending:summary") + redirect_url)
+                    
+                    # Ensure session is saved before redirect
+                    request.session.modified = True
+                    
+                    redirect_url = f"?section=you-owe&report_type={report_type}"
+                    if client_type_filter and client_type_filter != 'all':
+                        redirect_url += f"&client_type={client_type_filter}"
+                    return redirect(reverse("pending:summary") + redirect_url)
                 else:
                     # Invalid payment type
                     from django.contrib import messages
@@ -2038,6 +2054,21 @@ def pending_summary(request):
             current_balance = profit_loss_data["exchange_balance"]
             old_balance = get_old_balance_after_settlement(client_exchange)
             
+            # For company clients, ensure old_balance is correct for total_loss calculation
+            if client_exchange.client.is_company_client:
+                # Get total funding to ensure accurate Total Loss calculation
+                total_funding_for_old = Transaction.objects.filter(
+                    client_exchange=client_exchange,
+                    transaction_type=Transaction.TYPE_FUNDING
+                ).aggregate(total=Sum("amount"))["total"] or Decimal(0)
+                
+                # If there's a loss and total funding > current balance, use total funding as old_balance
+                if net_client_tally > 0 and total_funding_for_old > current_balance:
+                    old_balance = total_funding_for_old
+                # If old_balance <= current_balance but total funding > current_balance, use total funding
+                elif old_balance <= current_balance and total_funding_for_old > current_balance:
+                    old_balance = total_funding_for_old
+            
             # 🔒 CORE TRUTH VALIDATION: If Old Balance == Current Balance, then Net Change = 0
             # This ensures no false profit/loss is created
             # Calculate total funding to verify
@@ -2058,6 +2089,11 @@ def pending_summary(request):
                     old_balance = current_balance
                     # Debug print removed to prevent BrokenPipeError
             
+            # For company clients, final check to ensure old_balance is correct
+            if client_exchange.client.is_company_client:
+                if old_balance <= current_balance and total_funding > current_balance:
+                    old_balance = total_funding
+            
             # 🔒 THE ONE RULE THAT DECIDES EVERYTHING:
             # If Old Balance == Current Balance → Profit = 0, Loss = 0, Pending = 0
             # There is NO EXCEPTION to this rule.
@@ -2065,6 +2101,10 @@ def pending_summary(request):
                 # Old Balance == Current Balance → Skip this client entirely (no pending, no profit, no loss)
                 # Debug print removed to prevent BrokenPipeError
                 continue  # Skip adding to clients_owe_list
+            
+            # Calculate Total Loss: Old Balance - Current Balance
+            # This is the 100% loss that the client has incurred
+            total_loss = old_balance - current_balance
             
             # For my clients: net_amount is outstanding (Your Share only)
             # For company clients: net_amount is net client tally
@@ -2089,7 +2129,9 @@ def pending_summary(request):
                 "exchange_id": client_exchange.exchange.pk,
                 "client_exchange_id": client_exchange.pk,
                 "old_balance": old_balance,  # Balance before loss occurred
+                "current_balance": current_balance,  # Current balance (for total_loss calculation)
                 "exchange_balance": current_balance,  # Current balance (renamed for clarity)
+                "total_loss": total_loss,  # Total Loss = Old Balance - Current Balance (100% loss)
                 "pending_amount": my_share,  # Pending amount (client owes you) - calculated from LOSS transactions for MY CLIENTS
                 "company_pending": net_company_tally if client_exchange.client.is_company_client else Decimal(0),  # Net company tally
                 "your_earnings": your_earnings,  # Your earnings from company split (1% of losses + 1% of profits)
@@ -2325,8 +2367,20 @@ def pending_summary(request):
                 })
     
     # Sort by amount (descending)
-    clients_owe_list.sort(key=lambda x: x["pending_amount"], reverse=True)
-    you_owe_list.sort(key=lambda x: x["client_profit"], reverse=True)
+    # Use combined_share for sorting (available in both old and new code paths)
+    # Fallback to pending_amount or total_loss if combined_share is not available
+    def get_sort_key(item):
+        if "combined_share" in item:
+            return abs(item["combined_share"])
+        elif "pending_amount" in item:
+            return item["pending_amount"]
+        elif "total_loss" in item:
+            return item["total_loss"]
+        else:
+            return Decimal(0)
+    
+    clients_owe_list.sort(key=get_sort_key, reverse=True)
+    you_owe_list.sort(key=lambda x: abs(x.get("combined_share", x.get("client_profit", 0))), reverse=True)
     
     # Calculate totals
     total_pending = sum(item["pending_amount"] for item in clients_owe_list)
@@ -2481,6 +2535,45 @@ def export_pending_csv(request):
             else:
                 # COMPANY CLIENTS: Use net_client_tally (which already accounts for company share)
                 my_share = net_client_tally
+                # For company clients, get old_balance and current_balance for total_loss calculation
+                # IMPORTANT: Get current_balance first, then old_balance
+                current_balance = profit_loss_data["exchange_balance"]
+                old_balance = get_old_balance_after_settlement(client_exchange)
+                
+                # DEBUG: Track old_balance changes for client 'a1'
+                debug_a1 = client_exchange.client.name == 'a1'
+                if debug_a1:
+                    print(f"\n🔍 DEBUG START for 'a1'")
+                    print(f"  Initial old_balance: {old_balance}")
+                    print(f"  Initial current_balance: {current_balance}")
+                
+                # For company clients, always check total funding to ensure accurate Total Loss calculation
+                # Get total funding (the base amount given to client)
+                total_funding_for_old = Transaction.objects.filter(
+                    client_exchange=client_exchange,
+                    transaction_type=Transaction.TYPE_FUNDING
+                ).aggregate(total=Sum("amount"))["total"] or Decimal(0)
+                
+                if debug_a1:
+                    print(f"  total_funding_for_old: {total_funding_for_old}")
+                    print(f"  net_client_tally: {net_client_tally}")
+                
+                # If there's a loss (net_client_tally > 0) and total funding > current balance,
+                # use total funding as old_balance to show the actual loss
+                if net_client_tally > 0 and total_funding_for_old > current_balance:
+                    old_balance_before = old_balance
+                    old_balance = total_funding_for_old
+                    if debug_a1:
+                        print(f"  After check 1 (net_client_tally > 0): {old_balance_before} -> {old_balance}")
+                # If old_balance from settlement is less than or equal to current_balance,
+                # but total funding exists and is greater, use total funding
+                elif old_balance <= current_balance and total_funding_for_old > current_balance:
+                    old_balance_before = old_balance
+                    old_balance = total_funding_for_old
+                    if debug_a1:
+                        print(f"  After check 2 (old_balance <= current): {old_balance_before} -> {old_balance}")
+                elif debug_a1:
+                    print(f"  Checks 1 & 2 skipped")
             
             # Get the raw amounts from net_tallies for company clients
             if client_exchange.client.is_company_client:
@@ -2490,36 +2583,134 @@ def export_pending_csv(request):
                 company_share = Decimal(0)
                 combined_share = my_share
             
-            # Calculate old balance and current balance for display
-            current_balance = profit_loss_data["exchange_balance"]
-            old_balance = get_old_balance_after_settlement(client_exchange)
+            # For MY CLIENTS, old_balance and current_balance are already calculated above
+            # For COMPANY CLIENTS, they are also calculated above, but we need to ensure they're set correctly
+            if not client_exchange.client.is_company_client:
+                # Recalculate for display (already done above, but keeping for consistency)
+                current_balance = profit_loss_data["exchange_balance"]
+                old_balance = get_old_balance_after_settlement(client_exchange)
             
-            # Core truth validation
+            # Core truth validation - but DON'T modify old_balance for company clients if they're different
             total_funding = Transaction.objects.filter(
                 client_exchange=client_exchange,
                 transaction_type=Transaction.TYPE_FUNDING
             ).aggregate(total=Sum("amount"))["total"] or Decimal(0)
             
-            if not Transaction.objects.filter(
-                client_exchange=client_exchange,
-                transaction_type=Transaction.TYPE_SETTLEMENT
-            ).exists():
-                if abs(total_funding - current_balance) < Decimal("0.01"):
-                    old_balance = current_balance
+            # Only apply core truth validation for MY CLIENTS, not for COMPANY CLIENTS
+            # Company clients should show actual old_balance and current_balance difference
+            if not client_exchange.client.is_company_client:
+                if not Transaction.objects.filter(
+                    client_exchange=client_exchange,
+                    transaction_type=Transaction.TYPE_SETTLEMENT
+                ).exists():
+                    if abs(total_funding - current_balance) < Decimal("0.01"):
+                        old_balance = current_balance
             
-            if abs(old_balance - current_balance) < Decimal("0.01"):
+            # For company clients, prioritize old_balance if it's greater than current_balance
+            # Only use total_funding if old_balance is wrong (equals current_balance) but total_funding is higher
+            debug_a1 = client_exchange.client.name == 'a1'
+            if client_exchange.client.is_company_client:
+                old_balance_before_final = old_balance
+                # If old_balance is already greater than current_balance, keep it (it's correct)
+                # Only override if old_balance equals current_balance AND total_funding > current_balance
+                if old_balance <= current_balance and total_funding > current_balance:
+                    # old_balance is wrong (equals current), but total_funding is correct, use it
+                    old_balance = total_funding
+                    if debug_a1:
+                        print(f"  After final check (line 2557): {old_balance_before_final} -> {old_balance}")
+                elif debug_a1:
+                    print(f"  Final check skipped (old_balance={old_balance_before_final} > current={current_balance})")
+                # If old_balance > current_balance, keep it (it's already correct, don't override with total_funding)
+            
+            # Skip clients where old_balance and current_balance are essentially the same
+            # But allow very small differences to show (changed threshold to 0.001 to catch more cases)
+            debug_a1 = client_exchange.client.name == 'a1'
+            if abs(old_balance - current_balance) < Decimal("0.001"):
+                if debug_a1:
+                    print(f"  ⚠️ SKIPPING: old_balance ({old_balance}) too close to current_balance ({current_balance})")
                 continue
+            elif debug_a1:
+                print(f"  ✅ NOT SKIPPING: difference is {abs(old_balance - current_balance)}")
             
             # Calculate percentages for CSV - ALWAYS fetch from ClientExchange (source of truth)
             my_share_pct = client_exchange.my_share_pct or Decimal(0)
             company_share_pct = (client_exchange.company_share_pct or Decimal(0)) if client_exchange.client.is_company_client else Decimal(0)
             
+            # Set final balances for display
+            # For company clients, use old_balance (which we've already corrected above if needed)
+            final_old_balance = old_balance
+            final_current_balance = current_balance
+            
+            # Calculate total loss: Old Balance - Current Balance (for all clients)
+            # CRITICAL: This MUST always be final_old_balance - final_current_balance
+            # If Old Balance shows 100 and Current Balance shows 10, Total Loss MUST be 90
+            # Calculate directly from the final values - no conditions, no overrides
+            total_loss = final_old_balance - final_current_balance
+            
+            # ABSOLUTE FIX: The calculation above should always be correct
+            # But if for some reason it's 0 when there's a difference, force recalculation
+            # This should never happen, but it's a safety net
+            if abs(final_old_balance - final_current_balance) > Decimal("0.01"):
+                # There's a clear difference, ensure total_loss reflects it
+                total_loss = final_old_balance - final_current_balance
+            
+            # Show both positive and negative values (no need to clamp to 0)
+            
+            # FINAL CALCULATION: Calculate total_loss directly from the values we're displaying
+            # This ensures total_loss always matches: Old Balance - Current Balance
+            # If Old Balance = 100 and Current Balance = 10, Total Loss MUST be 90
+            total_loss_final = final_old_balance - final_current_balance
+            
+            # CRITICAL SAFETY CHECK: If old_balance and current_balance are different,
+            # total_loss CANNOT be 0. Force recalculation if needed.
+            if abs(final_old_balance - final_current_balance) > Decimal("0.01") and abs(total_loss_final) < Decimal("0.01"):
+                # There's a clear difference but total_loss is 0 - this is a bug, force recalculation
+                total_loss_final = final_old_balance - final_current_balance
+                debug_a1 = client_exchange.client.name == 'a1'
+                if debug_a1:
+                    print(f"  ⚠️ WARNING: total_loss was 0 but difference exists! Forcing recalculation: {total_loss_final}")
+            
+            # DEBUG: Print values for client 'a1' to verify calculation
+            if client_exchange.client.name == 'a1':
+                print(f"\n🔍 DEBUG FINAL for client 'a1':")
+                print(f"  final_old_balance: {final_old_balance}")
+                print(f"  final_current_balance: {final_current_balance}")
+                print(f"  total_loss_final: {total_loss_final}")
+                print(f"  old_balance (before final): {old_balance}")
+                print(f"  current_balance (before final): {current_balance}")
+                print(f"  Adding to clients_owe_list with total_loss={total_loss_final}")
+                
+                # Verify the dictionary entry
+                item_dict = {
+                    "client_code": client_exchange.client.code,
+                    "client_name": client_exchange.client.name,
+                    "exchange_name": client_exchange.exchange.name,
+                    "old_balance": final_old_balance,
+                    "current_balance": final_current_balance,
+                    "exchange_balance": final_current_balance,
+                    "total_loss": total_loss_final,
+                }
+                print(f"  Dictionary entry total_loss: {item_dict['total_loss']}")
+                print(f"🔍 DEBUG END for 'a1'\n")
+            
+            # FINAL VERIFICATION: Ensure total_loss is never 0 when there's a clear difference
+            # This is a critical safety check to prevent display issues
+            if abs(final_old_balance - final_current_balance) > Decimal("0.01"):
+                # There's a clear difference, total_loss MUST reflect it
+                if abs(total_loss_final) < Decimal("0.01"):
+                    # Something went wrong - force recalculation
+                    total_loss_final = final_old_balance - final_current_balance
+                    if client_exchange.client.name == 'a1':
+                        print(f"  ⚠️ CRITICAL: total_loss was 0 but difference exists! Forced to: {total_loss_final}")
+            
             clients_owe_list.append({
                 "client_code": client_exchange.client.code,
                 "client_name": client_exchange.client.name,
                 "exchange_name": client_exchange.exchange.name,
-                "old_balance": old_balance,
-                "current_balance": current_balance,
+                "old_balance": final_old_balance,
+                "current_balance": final_current_balance,
+                "exchange_balance": final_current_balance,  # Template uses this key
+                "total_loss": total_loss_final,  # Use the final calculated value - MUST be old_balance - current_balance
                 "my_share": my_share,
                 "my_share_pct": my_share_pct,
                 "company_share": company_share,
@@ -2527,6 +2718,12 @@ def export_pending_csv(request):
                 "combined_share": combined_share,
                 "is_company_client": client_exchange.client.is_company_client,
             })
+            
+            # Final debug verification for 'a1'
+            if client_exchange.client.name == 'a1':
+                last_item = clients_owe_list[-1]
+                print(f"  ✅ VERIFIED: Last item in list has total_loss={last_item['total_loss']}")
+                print(f"     old_balance={last_item['old_balance']}, current_balance={last_item['current_balance']}")
             continue
         
         # Clients where you owe them (profit case)
@@ -2630,12 +2827,16 @@ def export_pending_csv(request):
                 my_share_pct = client_exchange.my_share_pct or Decimal(0)
                 company_share_pct = (client_exchange.company_share_pct or Decimal(0)) if client_exchange.client.is_company_client else Decimal(0)
                 
+                # Calculate total profit (100% profit = Current Balance - Old Balance)
+                total_profit = current_balance - old_balance
+                
                 you_owe_list.append({
                     "client_code": client_exchange.client.code,
                     "client_name": client_exchange.client.name,
                     "exchange_name": client_exchange.exchange.name,
                     "old_balance": old_balance,
                     "current_balance": current_balance,
+                    "total_profit": total_profit,
                     "my_share": abs(my_share) if my_share < 0 else my_share,
                     "my_share_pct": my_share_pct,
                     "company_share": abs(company_share) if company_share < 0 else company_share,
@@ -2660,15 +2861,17 @@ def export_pending_csv(request):
     writer = csv.writer(response)
     
     # Write header row (exactly matching UI table - Amount first, then percentage)
-    # If combine_shares is true and showing company clients, show only Company % column
+    # If combine_shares is true and showing company clients, show Combined Share amount and Company %
     if combine_shares and (client_type_filter == 'company' or client_type_filter == 'all'):
-        # Combined view for company clients: Show only Company % column
+        # Combined view for company clients: Show Combined Share amount and Company % columns
         writer.writerow([
             'Client Code',
             'Client Name',
             'Exchange',
             'Old Balance',
             'Current Balance',
+            'Total Loss',
+            'Combined Share (My + Company)',
             'Company %',
         ])
     elif client_type_filter == 'company' or client_type_filter == 'all':
@@ -2679,6 +2882,7 @@ def export_pending_csv(request):
             'Exchange',
             'Old Balance',
             'Current Balance',
+            'Total Loss',
             'My Amount',
             'My %',
             'Company Amount',
@@ -2692,6 +2896,7 @@ def export_pending_csv(request):
             'Exchange',
             'Old Balance',
             'Current Balance',
+            'Total Loss',
             'My Amount',
             'My %',
         ])
@@ -2700,7 +2905,7 @@ def export_pending_csv(request):
     # Use SAME data source as pending UI - one row per client, horizontal format
     if section in ["all", "clients-owe"] and clients_owe_list:
         for item in clients_owe_list:
-            # If combine_shares is true and it's a company client, show only Company %
+            # If combine_shares is true and it's a company client, show Combined Share amount and Company %
             if combine_shares and item.get("is_company_client", False):
                 writer.writerow([
                     item["client_code"] or '—',
@@ -2708,6 +2913,8 @@ def export_pending_csv(request):
                     item["exchange_name"],
                     float(item["old_balance"]),
                     float(item["current_balance"]),
+                    float(item.get("total_loss", 0)),
+                    float(item.get("combined_share", 0)),
                     float(item.get("company_share_pct", 0)),
                 ])
             elif client_type_filter == 'company' or client_type_filter == 'all':
@@ -2717,6 +2924,7 @@ def export_pending_csv(request):
                     item["exchange_name"],
                     float(item["old_balance"]),
                     float(item["current_balance"]),
+                    float(item.get("total_loss", 0)),
                     float(item.get("my_share", 0)),
                     float(item.get("my_share_pct", 0)),
                     float(item.get("company_share", 0)),
@@ -2729,6 +2937,7 @@ def export_pending_csv(request):
                     item["exchange_name"],
                     float(item["old_balance"]),
                     float(item["current_balance"]),
+                    float(item.get("total_loss", 0)),
                     float(item.get("my_share", 0)),
                     float(item.get("my_share_pct", 0)),
                 ])
@@ -2736,7 +2945,7 @@ def export_pending_csv(request):
     # Write You Owe Clients section (if requested)
     if section in ["all", "you-owe"] and you_owe_list:
         for item in you_owe_list:
-            # If combine_shares is true and it's a company client, show only Company %
+            # If combine_shares is true and it's a company client, show Combined Share amount and Company %
             if combine_shares and item.get("is_company_client", False):
                 writer.writerow([
                     item["client_code"] or '—',
@@ -2744,6 +2953,8 @@ def export_pending_csv(request):
                     item["exchange_name"],
                     float(item["old_balance"]),
                     float(item["current_balance"]),
+                    float(item.get("total_profit", 0)),
+                    float(item.get("combined_share", 0)),
                     float(item.get("company_share_pct", 0)),
                 ])
             elif client_type_filter == 'company' or client_type_filter == 'all':
@@ -2753,6 +2964,7 @@ def export_pending_csv(request):
                     item["exchange_name"],
                     float(item["old_balance"]),
                     float(item["current_balance"]),
+                    float(item.get("total_profit", 0)),
                     float(item.get("my_share", 0)),
                     float(item.get("my_share_pct", 0)),
                     float(item.get("company_share", 0)),
@@ -2765,6 +2977,7 @@ def export_pending_csv(request):
                     item["exchange_name"],
                     float(item["old_balance"]),
                     float(item["current_balance"]),
+                    float(item.get("total_profit", 0)),
                     float(item.get("my_share", 0)),
                     float(item.get("my_share_pct", 0)),
                 ])
