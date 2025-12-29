@@ -111,6 +111,7 @@
                     shareInfo.style.display = 'block';
                 }
             } else if (paymentType === 'client_pays' && combinedShare > 0) {
+                // Use total combined share for the amount input (full share before payments)
                 amountInput.value = combinedShare.toFixed(1);
                 // Set max to combined share - user cannot pay more than this
                 amountInput.max = combinedShare.toFixed(1);
@@ -120,6 +121,7 @@
                 if (pendingInfo) pendingInfo.style.display = 'block';
                 
                 // Show share breakdown if available
+                // Use total shares (myShare, companyShare, combinedShare) which are the FULL amounts before payments
                 if (shareInfo && (myShare > 0 || companyShare > 0 || combinedShare > 0)) {
                     const myShareEl = document.getElementById('settle-my-share');
                     const companyShareEl = document.getElementById('settle-company-share');
@@ -127,12 +129,15 @@
                     const companyShareRow = document.getElementById('settle-company-share-row');
                     const combinedShareRow = document.getElementById('settle-combined-share-row');
                     
+                    // Display total my share (full amount before payments)
                     if (myShareEl) myShareEl.textContent = '₹ ' + parseFloat(myShare).toFixed(1);
                     
                     // Only show company share for company clients
                     if (isCompanyClient && parseFloat(companyShare) > 0) {
+                        // Display total company share (full amount before payments)
                         if (companyShareEl) companyShareEl.textContent = '₹ ' + parseFloat(companyShare).toFixed(1);
                         if (companyShareRow) companyShareRow.style.display = 'flex';
+                        // Display total combined share (full amount before payments)
                         if (combinedShareEl) combinedShareEl.textContent = '₹ ' + parseFloat(combinedShare).toFixed(1);
                         if (combinedShareRow) combinedShareRow.style.display = 'flex';
                     } else {
@@ -788,7 +793,7 @@
                         {% endif %}
                     </td>
                     <td style="position: relative; z-index: 10;">
-                        <button onclick="event.stopPropagation(); event.preventDefault(); console.log('Button clicked!'); try { if (typeof window.showSettlementForm === 'function') { window.showSettlementForm({{ item.client_id }}, {{ item.client_exchange_id }}, '{{ item.client_name|escapejs }}', '{{ item.exchange_name|escapejs }}', {{ item.pending_amount|default:0 }}, 'client_pays', {{ item.my_share|default:0 }}, {{ item.company_share|default:0 }}, {{ item.combined_share|default:0 }}, {{ item.is_company_client|yesno:"true,false" }}); } else { console.error('showSettlementForm is not defined!'); alert('Error: Payment form function not loaded. Please refresh the page.'); } } catch(e) { console.error('Error calling showSettlementForm:', e); alert('Error: ' + e.message); }" class="action-button" style="position: relative; z-index: 100; pointer-events: auto; cursor: pointer;">
+                        <button onclick="event.stopPropagation(); event.preventDefault(); console.log('Button clicked!'); try { if (typeof window.showSettlementForm === 'function') { window.showSettlementForm({{ item.client_id }}, {{ item.client_exchange_id }}, '{{ item.client_name|escapejs }}', '{{ item.exchange_name|escapejs }}', {{ item.pending_amount|default:0 }}, 'client_pays', {{ item.total_my_share|default:item.my_share|default:0 }}, {{ item.total_company_share|default:item.company_share|default:0 }}, {{ item.total_combined_share|default:item.combined_share|default:0 }}, {{ item.is_company_client|yesno:"true,false" }}); } else { console.error('showSettlementForm is not defined!'); alert('Error: Payment form function not loaded. Please refresh the page.'); } } catch(e) { console.error('Error calling showSettlementForm:', e); alert('Error: ' + e.message); }" class="action-button" style="position: relative; z-index: 100; pointer-events: auto; cursor: pointer;">
                             Record Payment
                         </button>
                     </td>
