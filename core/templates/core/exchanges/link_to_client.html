@@ -48,7 +48,7 @@
         
         <div style="display: flex; gap: 12px; margin-top: 20px;">
             <button type="submit" class="btn btn-primary" id="submit-btn">Link Exchange</button>
-            <a href="{% if client_type == 'company' %}{% url 'company_clients:detail' client.pk %}{% else %}{% url 'my_clients:detail' client.pk %}{% endif %}" class="btn">Cancel</a>
+            <a href="{% url 'my_clients:detail' client.pk %}" class="btn">Cancel</a>
         </div>
     </form>
 </div>

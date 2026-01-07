@@ -6,10 +6,10 @@
 
 {% block page_actions %}
 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-    <a href="{% if client_type == 'company' %}{% url 'company_clients:link_exchange' client.pk %}{% else %}{% url 'my_clients:link_exchange' client.pk %}{% endif %}" class="btn btn-primary">Link Exchange</a>
+    <a href="{% url 'my_clients:link_exchange' client.pk %}" class="btn btn-primary">Link Exchange</a>
     <button onclick="showGiveMoneyForm()" class="btn" style="background: var(--success); color: white;">Give Money</button>
-    <a href="{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}" class="btn">View Balance</a>
-    <a href="{% if client_type == 'company' %}{% url 'company_clients:report' client.pk %}{% else %}{% url 'my_clients:report' client.pk %}{% endif %}" class="btn">View Report</a>
+    <a href="{% url 'my_clients:balance' client.pk %}" class="btn">View Balance</a>
+    <a href="{% url 'my_clients:report' client.pk %}" class="btn">View Report</a>
 </div>
 {% endblock %}
 
@@ -75,7 +75,7 @@
                 {% for ce in client_exchanges %}
                     <tr>
                         <td>
-                            <a href="{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}?exchange={{ ce.pk }}" style="color: var(--accent); text-decoration: none; font-weight: 500;">
+                            <a href="{% url 'my_clients:balance' client.pk %}?exchange={{ ce.pk }}" style="color: var(--accent); text-decoration: none; font-weight: 500;">
                                 {{ ce.exchange.name }}{% if ce.exchange.code %} ({{ ce.exchange.code }}){% endif %}
                             </a>
                         </td>
@@ -118,7 +118,7 @@
                 {% for ce in inactive_client_exchanges %}
                     <tr>
                         <td>
-                            <a href="{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}?exchange={{ ce.pk }}" style="color: var(--muted); text-decoration: none; font-weight: 500;">
+                            <a href="{% url 'my_clients:balance' client.pk %}?exchange={{ ce.pk }}" style="color: var(--muted); text-decoration: none; font-weight: 500;">
                                 {{ ce.exchange.name }}{% if ce.exchange.code %} ({{ ce.exchange.code }}){% endif %}
                             </a>
                         </td>
@@ -150,7 +150,7 @@
             <h2 style="font-size: 20px; font-weight: 600; margin: 0;">Give Money to {{ client.name }}</h2>
             <button onclick="hideGiveMoneyForm()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--muted);">&times;</button>
         </div>
-        <form method="post" action="{% if client_type == 'company' %}{% url 'company_clients:give_money' client.pk %}{% else %}{% url 'my_clients:give_money' client.pk %}{% endif %}">
+        <form method="post" action="{% url 'my_clients:give_money' client.pk %}">
             {% csrf_token %}
             <div class="form-row">
                 <label class="field-label">Select Exchange *</label>

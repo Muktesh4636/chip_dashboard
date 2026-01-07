@@ -22,25 +22,11 @@ class Client(TimeStampedModel):
     code = models.CharField(max_length=50, blank=True, null=True, help_text="Client code (unique per user)")
     referred_by = models.CharField(max_length=255, blank=True, null=True, help_text="Name of person who referred this client")
     is_active = models.BooleanField(default=True)
-    is_company_client = models.BooleanField(default=False, help_text="If True, this is a company client. If False, this is your personal client.")
-    security_deposit = models.DecimalField(
-        max_digits=14, 
-        decimal_places=2, 
-        default=Decimal('0'), 
-        help_text='One-time security deposit paid by company client (only for company clients)'
-    )
-    security_deposit_paid_date = models.DateField(
-        blank=True, 
-        null=True, 
-        help_text='Date when security deposit was paid (one-time payment)'
-    )
 
     class Meta:
         unique_together = [("user", "code")]  # Code must be unique per user
         indexes = [
             models.Index(fields=["user", "is_active"]),
-            models.Index(fields=["user", "is_company_client"]),
-            models.Index(fields=["is_company_client", "is_active"]),
             models.Index(fields=["code"]),  # For client code searches
         ]
 
@@ -77,11 +63,6 @@ class ClientExchange(TimeStampedModel):
     exchange = models.ForeignKey(Exchange, related_name="client_exchanges", on_delete=models.CASCADE)
 
     my_share_pct = models.DecimalField(max_digits=5, decimal_places=2, help_text="Your share of profits (%)")
-    company_share_pct = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        help_text="Company share percentage FROM CLIENT's share (%). Example: If your share is 30% and company share is 9%, company gets 9% of the client's 70% share. Must be less than 100.",
-    )
 
     is_active = models.BooleanField(default=True)
     
@@ -120,10 +101,6 @@ class ClientExchange(TimeStampedModel):
             models.Index(fields=["is_active"]),
         ]
 
-    def clean(self):
-        from django.core.exceptions import ValidationError
-        if self.company_share_pct >= 100:
-            raise ValidationError("Company share must be less than 100%")
 
     def __str__(self) -> str:
         return f"{self.client.name} - {self.exchange.name}"
@@ -163,7 +140,6 @@ class Transaction(TimeStampedModel):
     # Computed shares at the time of transaction (denormalized for snapshot consistency)
     client_share_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     your_share_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    company_share_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     
     # For SETTLEMENT transactions: capital_closed (audit trail)
     capital_closed = models.DecimalField(
@@ -263,21 +239,6 @@ class DailyBalanceSnapshot(TimeStampedModel):
     def __str__(self) -> str:
         code_part = f"{self.client_exchange.client.code} " if self.client_exchange.client.code else ""
         return f"Snapshot {code_part}{self.client_exchange.exchange.name} on {self.date}"
-
-
-class CompanyShareRecord(TimeStampedModel):
-    """
-    Denormalized record of company share amounts for transparency and reporting.
-    """
-
-    client_exchange = models.ForeignKey("ClientExchange", related_name="company_shares", on_delete=models.CASCADE)
-    transaction = models.ForeignKey(Transaction, related_name="company_shares", on_delete=models.CASCADE)
-    date = models.DateField(default=timezone.now)
-
-    company_amount = models.DecimalField(max_digits=14, decimal_places=2)
-
-    def __str__(self) -> str:
-        return f"{self.client_exchange} company share {self.company_amount} on {self.date}"
 
 
 class ClientDailyBalance(TimeStampedModel):
@@ -394,77 +355,6 @@ class OutstandingAmount(TimeStampedModel):
         return f"{self.client_exchange} - Outstanding: ₹{self.outstanding_amount}"
 
 
-class TallyLedger(TimeStampedModel):
-    """
-    Tally ledger for COMPANY CLIENTS only.
-    Tracks separate amounts owed between you, client, and company.
-    Nothing is paid immediately - we only remember (tally) who owes whom.
-    Later, when profit comes, we adjust. At the end, we pay only the difference.
-    
-    For COMPANY CLIENTS:
-    - client_owes_you: Your direct share from losses (e.g., 10% of loss)
-    - company_owes_you: Company's portion from losses that you're owed (9% of loss)
-    - you_owe_client: Your direct share from profits (e.g., 10% of profit)
-    - you_owe_company: Company's portion from profits that you need to pay (9% of profit)
-    
-    Earnings (not paid, just recorded):
-    - Your earnings from losses: 1% of loss (from company share)
-    - Your earnings from profits: 1% of profit (from company share)
-    
-    Final payments are calculated as net amounts:
-    - Net to client = you_owe_client - client_owes_you
-    - Net to company = you_owe_company - company_owes_you
-    """
-    client_exchange = models.OneToOneField(
-        "ClientExchange",
-        related_name="tally_ledger",
-        on_delete=models.CASCADE,
-        unique=True,
-        help_text="One tally ledger per client-exchange (Company Clients only)"
-    )
-    client_owes_you = models.DecimalField(
-        max_digits=14,
-        decimal_places=2,
-        default=Decimal(0),
-        help_text="Client owes you (your direct share from losses, e.g., 10% of loss)"
-    )
-    company_owes_you = models.DecimalField(
-        max_digits=14,
-        decimal_places=2,
-        default=Decimal(0),
-        help_text="Company owes you (company's portion from losses, 9% of loss)"
-    )
-    you_owe_client = models.DecimalField(
-        max_digits=14,
-        decimal_places=2,
-        default=Decimal(0),
-        help_text="You owe client (your direct share from profits, e.g., 10% of profit)"
-    )
-    you_owe_company = models.DecimalField(
-        max_digits=14,
-        decimal_places=2,
-        default=Decimal(0),
-        help_text="You owe company (company's portion from profits, 9% of profit)"
-    )
-    note = models.TextField(blank=True, help_text="Optional note about tally ledger")
-    
-    class Meta:
-        verbose_name_plural = "Tally Ledgers"
-    
-    @property
-    def net_client_payable(self):
-        """Net amount you need to pay client (positive) or client owes you (negative)."""
-        return self.you_owe_client - self.client_owes_you
-    
-    @property
-    def net_company_payable(self):
-        """Net amount you need to pay company (positive) or company owes you (negative)."""
-        return self.you_owe_company - self.company_owes_you
-    
-    def __str__(self):
-        return f"{self.client_exchange} - Client: {self.net_client_payable}, Company: {self.net_company_payable}"
-
-
 class LossSnapshot(TimeStampedModel):
     """
     Frozen snapshot of loss state for a client-exchange.
@@ -500,12 +390,6 @@ class LossSnapshot(TimeStampedModel):
         max_digits=5,
         decimal_places=2,
         help_text="Frozen my share percentage at loss creation time"
-    )
-    company_share_pct = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=Decimal(0),
-        help_text="Frozen company share percentage at loss creation time"
     )
     is_settled = models.BooleanField(
         default=False,

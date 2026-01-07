@@ -4,10 +4,8 @@ from core import views
 
 urlpatterns = [
     path("", views.client_list, name="list"),
-    path("company/", views.company_clients_list, name="company_list"),
     path("my/", views.my_clients_list, name="my_list"),
     path("add/", views.client_create, name="add"),  # Legacy - redirects
-    path("add/company/", views.company_client_create, name="add_company"),
     path("add/my/", views.my_client_create, name="add_my"),
     path("<int:pk>/", views.client_detail, name="detail"),
     path("<int:client_pk>/give-money/", views.client_give_money, name="give_money"),

@@ -24,13 +24,11 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("", core_views.dashboard, name="dashboard"),
     path("clients/", include(("core.urls.clients", "clients"), namespace="clients")),  # Legacy - all clients
-    path("company-clients/", include(("core.urls.company_clients", "company_clients"), namespace="company_clients")),
     path("my-clients/", include(("core.urls.my_clients", "my_clients"), namespace="my_clients")),
     path("exchanges/", include(("core.urls.exchanges", "exchanges"), namespace="exchanges")),
     path("transactions/", include(("core.urls.transactions", "transactions"), namespace="transactions")),
     path("pending/", include(("core.urls.pending", "pending"), namespace="pending")),
     path("reports/", include(("core.urls.reports", "reports"), namespace="reports")),
-    path("company-share/", include(("core.urls.company", "company"), namespace="company_share")),
     path("settings/", core_views.settings_view, name="settings"),
     path("login/", core_views.login_view, name="login"),
     path("logout/", core_views.logout_view, name="logout"),

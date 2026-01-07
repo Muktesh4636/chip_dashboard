@@ -497,7 +497,6 @@
             <button type="button" class="client-filter-button" id="client-filter-button">
                 <span id="client-filter-selected">
                     {% if client_type_filter == 'my' %}My Clients
-                    {% elif client_type_filter == 'company' %}Company Clients
                     {% else %}All Clients
                     {% endif %}
                 </span>
@@ -505,7 +504,6 @@
             <div class="client-filter-dropdown" id="client-filter-dropdown">
                 <div class="client-filter-option {% if client_type_filter == 'all' or not client_type_filter %}selected{% endif %}" data-value="all">All Clients</div>
                 <div class="client-filter-option {% if client_type_filter == 'my' %}selected{% endif %}" data-value="my">My Clients</div>
-                <div class="client-filter-option {% if client_type_filter == 'company' %}selected{% endif %}" data-value="company">Company Clients</div>
             </div>
         </div>
         <script>
@@ -579,22 +577,12 @@
                     <span>Dashboard</span>
                 </a>
             </li>
-            {% if client_type_filter != 'my' %}
-            <li class="nav-item" id="nav-company-clients">
-                <a href="{% url 'company_clients:list' %}" class="nav-link {% if request.resolver_match.namespace == 'company_clients' %}active{% endif %}">
-                    <span class="nav-icon">🏢</span>
-                    <span>Company Clients</span>
-                </a>
-            </li>
-            {% endif %}
-            {% if client_type_filter != 'company' %}
             <li class="nav-item" id="nav-my-clients">
                 <a href="{% url 'my_clients:list' %}" class="nav-link {% if request.resolver_match.namespace == 'my_clients' %}active{% endif %}">
                     <span class="nav-icon">👤</span>
                     <span>My Clients</span>
                 </a>
             </li>
-            {% endif %}
             <li class="nav-item">
                 <a href="{% url 'exchanges:list' %}" id="nav-exchanges-link" class="nav-link {% if request.resolver_match.namespace == 'exchanges' %}active{% endif %}">
                     <span class="nav-icon">🏦</span>

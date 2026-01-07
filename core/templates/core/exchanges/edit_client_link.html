@@ -65,7 +65,7 @@
         
         <div style="display: flex; gap: 12px; margin-top: 20px;">
             <button type="submit" class="btn btn-primary" id="submit-btn">Save Changes</button>
-            <a href="{% if client_type == 'company' %}{% url 'company_clients:detail' client_exchange.client.pk %}{% else %}{% url 'my_clients:detail' client_exchange.client.pk %}{% endif %}" class="btn">Cancel</a>
+            <a href="{% url 'my_clients:detail' client_exchange.client.pk %}" class="btn">Cancel</a>
         </div>
     </form>
 </div>

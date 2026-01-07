@@ -5,7 +5,7 @@
 {% block page_subtitle %}{% if client.code %}Code: {{ client.code }} · {% endif %}{% if selected_exchange_name %}Exchange: {{ selected_exchange_name }}{% else %}All Exchanges{% endif %}{% endblock %}
 
 {% block page_actions %}
-<a href="{% if client_type == 'company' %}{% url 'company_clients:detail' client.pk %}{% else %}{% url 'my_clients:detail' client.pk %}{% endif %}" class="btn">Back to Client</a>
+<a href="{% url 'my_clients:detail' client.pk %}" class="btn">Back to Client</a>
 {% endblock %}
 
 {% block content %}
@@ -23,7 +23,7 @@
             {% endfor %}
         </select>
         {% if selected_exchange_id %}
-            <a href="{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}" class="btn">Clear</a>
+            <a href="{% url 'my_clients:balance' client.pk %}" class="btn">Clear</a>
         {% endif %}
     </form>
 </div>
@@ -79,7 +79,7 @@
         <div style="display: flex; gap: 12px; align-items: center;">
             <button type="submit" class="btn btn-primary">{% if edit_balance %}Update Balance{% else %}Record Balance{% endif %}</button>
             {% if edit_balance %}
-                <a href="{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}{% if selected_exchange_id %}?exchange={{ selected_exchange_id }}{% endif %}" class="btn">Cancel</a>
+                <a href="{% url 'my_clients:balance' client.pk %}{% if selected_exchange_id %}?exchange={{ selected_exchange_id }}{% endif %}" class="btn">Cancel</a>
             {% endif %}
         </div>
     </form>
@@ -264,9 +264,9 @@
 <script>
 function filterByExchange(clientExchangeId) {
     if (!clientExchangeId) {
-        window.location.href = "{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}";
+        window.location.href = "{% url 'my_clients:balance' client.pk %}";
     } else {
-        window.location.href = "{% if client_type == 'company' %}{% url 'company_clients:balance' client.pk %}{% else %}{% url 'my_clients:balance' client.pk %}{% endif %}?exchange=" + clientExchangeId;
+        window.location.href = "{% url 'my_clients:balance' client.pk %}?exchange=" + clientExchangeId;
     }
 }
 
@@ -289,7 +289,7 @@ function loadExchangeBalanceData(clientExchangeId) {
     
     loadingDiv.style.display = 'block';
     
-    fetch(`{% if client_type == 'company' %}{% url 'company_clients:get_latest_balance' client.pk %}{% else %}{% url 'my_clients:get_latest_balance' client.pk %}{% endif %}?client_exchange_id=${clientExchangeId}`)
+    fetch(`{% url 'my_clients:get_latest_balance' client.pk %}?client_exchange_id=${clientExchangeId}`)
         .then(response => response.json())
         .then(data => {
             loadingDiv.style.display = 'none';

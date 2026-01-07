@@ -32,7 +32,7 @@
             }
             
             // Get URLs from data attributes
-            const companyClientsUrl = form.getAttribute('data-company-clients-url') || "{% url 'company_clients:settle_payment' %}";
+            const companyClientsUrl = form.getAttribute('data-company-clients-url') || "{% url 'my_clients:settle_payment' %}";
             const myClientsUrl = form.getAttribute('data-my-clients-url') || "{% url 'my_clients:settle_payment' %}";
             
             // Set form action based on client type
@@ -965,7 +965,7 @@
             <h2 class="modal-title">Settle Payment</h2>
             <button onclick="hideSettlementForm()" class="modal-close">&times;</button>
         </div>
-        <form method="post" action="" id="settlement-form-content" onsubmit="return handleFormSubmit(event);" data-my-clients-url="{% url 'my_clients:settle_payment' %}" data-company-clients-url="{% url 'company_clients:settle_payment' %}">
+        <form method="post" action="" id="settlement-form-content" onsubmit="return handleFormSubmit(event);" data-my-clients-url="{% url 'my_clients:settle_payment' %}" data-company-clients-url="{% url 'my_clients:settle_payment' %}">
             {% csrf_token %}
             <input type="hidden" name="client_id" id="settle-client-id">
             <input type="hidden" name="client_exchange_id" id="settle-client-exchange-id">
@@ -1078,7 +1078,7 @@
             console.log('Form found, setting up...');
             
             // Get URLs from data attributes (more reliable than template tags in JS)
-            const companyClientsUrl = form.getAttribute('data-company-clients-url') || "{% url 'company_clients:settle_payment' %}";
+            const companyClientsUrl = form.getAttribute('data-company-clients-url') || "{% url 'my_clients:settle_payment' %}";
             const myClientsUrl = form.getAttribute('data-my-clients-url') || "{% url 'my_clients:settle_payment' %}";
             
             console.log('URLs from data attributes:', {

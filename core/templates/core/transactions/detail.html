@@ -24,7 +24,7 @@
         <tr>
             <td><strong>Client</strong></td>
             <td>
-                <a href="{% if client_type == 'company' %}{% url 'company_clients:detail' client.pk %}{% else %}{% url 'my_clients:detail' client.pk %}{% endif %}" style="color: var(--accent); text-decoration: none;">
+                <a href="{% url 'my_clients:detail' client.pk %}" style="color: var(--accent); text-decoration: none;">
                     {{ transaction.client_exchange.client.name }}{% if transaction.client_exchange.client.code %} ({{ transaction.client_exchange.client.code }}){% endif %}
                 </a>
             </td>
