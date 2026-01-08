@@ -1,8 +1,0 @@
-# Management commands package
-
-
-
-
-
-
-

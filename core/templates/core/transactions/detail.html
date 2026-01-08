@@ -2,180 +2,58 @@
 
 {% block title %}Transaction Details · Transaction Hub{% endblock %}
 {% block page_title %}Transaction Details{% endblock %}
-{% block page_subtitle %}{{ transaction.get_transaction_type_display }} - {{ transaction.client_exchange.client.name }} - {{ transaction.client_exchange.exchange.name }}{% endblock %}
-
-{% block page_actions %}
-<a href="{% url 'transactions:list' %}" class="btn">Back to Transactions</a>
-<a href="{% url 'transactions:edit' transaction.pk %}" class="btn btn-primary">Edit Transaction</a>
-{% endblock %}
+{% block page_subtitle %}{{ transaction.get_type_display }} - {{ transaction.date|date:"Y-m-d H:i" }}{% endblock %}
 
 {% block content %}
-<!-- Transaction Information -->
-<div class="table-wrapper" style="margin-bottom: 24px;">
-    <div class="table-header">
-        <div>Transaction Information</div>
-    </div>
+<div class="card" style="max-width: 600px;">
     <table>
-        <tbody>
         <tr>
-            <td><strong>Date</strong></td>
-            <td>{{ transaction.date|date:"F d, Y" }}</td>
+            <td style="font-weight: 600; color: var(--muted); width: 200px;">Date:</td>
+            <td>{{ transaction.date|date:"Y-m-d H:i:s" }}</td>
         </tr>
         <tr>
-            <td><strong>Client</strong></td>
+            <td style="font-weight: 600; color: var(--muted);">Client:</td>
             <td>
-                <a href="{% url 'my_clients:detail' client.pk %}" style="color: var(--accent); text-decoration: none;">
-                    {{ transaction.client_exchange.client.name }}{% if transaction.client_exchange.client.code %} ({{ transaction.client_exchange.client.code }}){% endif %}
+                <a href="{% url 'client_detail' transaction.client_exchange.client.pk %}" style="color: var(--accent); text-decoration: none;">
+                    {{ transaction.client_exchange.client.name }}
                 </a>
             </td>
         </tr>
         <tr>
-            <td><strong>Exchange</strong></td>
-            <td>{{ transaction.client_exchange.exchange.name }}{% if transaction.client_exchange.exchange.code %} ({{ transaction.client_exchange.exchange.code }}){% endif %}</td>
+            <td style="font-weight: 600; color: var(--muted);">Exchange:</td>
+            <td>{{ transaction.client_exchange.exchange.name }}</td>
         </tr>
         <tr>
-            <td><strong>Type</strong></td>
+            <td style="font-weight: 600; color: var(--muted);">Type:</td>
             <td>
-                {% if transaction.transaction_type == 'PROFIT' %}
-                    <span class="badge badge-success">{{ transaction.get_transaction_type_display }}</span>
-                {% elif transaction.transaction_type == 'LOSS' %}
-                    <span class="badge" style="background: #fee2e2; color: var(--danger);">{{ transaction.get_transaction_type_display }}</span>
-                {% elif transaction.transaction_type == 'FUNDING' %}
-                    <span class="badge" style="background: #dbeafe; color: #1e40af;">{{ transaction.get_transaction_type_display }}</span>
-                {% else %}
-                    <span class="badge badge-muted">{{ transaction.get_transaction_type_display }}</span>
-                {% endif %}
+                <span class="badge {% if transaction.type == 'FUNDING' %}badge-success{% else %}badge-muted{% endif %}">
+                    {{ transaction.get_type_display }}
+                </span>
             </td>
         </tr>
         <tr>
-            <td><strong>Amount</strong></td>
-            <td><strong style="font-size: 18px; color: var(--accent);">₹ {{ transaction.amount|floatformat:1 }}</strong></td>
+            <td style="font-weight: 600; color: var(--muted);">Amount:</td>
+            <td>{{ transaction.amount|floatformat:0 }}</td>
         </tr>
         <tr>
-            <td><strong>Your Share</strong>{% if client_exchange.my_share_pct %} ({{ client_exchange.my_share_pct }}%){% endif %}</td>
-            <td>₹ {{ calculated_your_share|floatformat:1 }}</td>
+            <td style="font-weight: 600; color: var(--muted);">Exchange Balance After:</td>
+            <td>{{ transaction.exchange_balance_after|floatformat:0 }}</td>
         </tr>
+        {% if transaction.notes %}
         <tr>
-            <td><strong>Client Share</strong></td>
-            <td>₹ {{ calculated_client_share|floatformat:1 }}</td>
-        </tr>
-        {% if client_type == 'company' %}
-        <tr>
-            <td><strong>Company Share</strong>{% if client_exchange.company_share_pct %} ({{ client_exchange.company_share_pct }}% of client's share){% endif %}</td>
-            <td>₹ {{ calculated_company_share|floatformat:1 }}</td>
+            <td style="font-weight: 600; color: var(--muted); vertical-align: top;">Notes:</td>
+            <td>{{ transaction.notes|linebreaks }}</td>
         </tr>
         {% endif %}
         <tr>
-            <td><strong>Note</strong></td>
-            <td>{{ transaction.note|default:"—" }}</td>
+            <td style="font-weight: 600; color: var(--muted);">Created:</td>
+            <td>{{ transaction.created_at|date:"Y-m-d H:i:s" }}</td>
         </tr>
-        </tbody>
     </table>
-</div>
-
-<!-- Balance Before Transaction -->
-<div class="table-wrapper" style="margin-bottom: 24px;">
-    <div class="table-header">
-        <div>Balance Before Transaction</div>
+    
+    <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border);">
+        <a href="{% url 'exchange_account_detail' transaction.client_exchange.pk %}" class="btn btn-primary">View Account</a>
+        <a href="{% url 'transaction_list' %}" class="btn" style="margin-left: 8px;">Back to Transactions</a>
     </div>
-    <table>
-        <tbody>
-        <tr>
-            <td><strong>Exchange Balance</strong></td>
-            <td><strong style="font-size: 18px; color: var(--accent);">₹ {{ balance_before|floatformat:1 }}</strong></td>
-        </tr>
-        <tr>
-            <td>Total Funding</td>
-            <td>₹ {{ funding_before|floatformat:1 }}</td>
-        </tr>
-        <tr>
-            <td>Total Profit</td>
-            <td style="color: var(--success);">₹ {{ profit_before|floatformat:1 }}</td>
-        </tr>
-        <tr>
-            <td>Total Loss</td>
-            <td style="color: var(--danger);">₹ {{ loss_before|floatformat:1 }}</td>
-        </tr>
-        <tr>
-            <td><strong>Client Net Balance</strong></td>
-            <td><strong style="color: {% if client_net_before >= 0 %}var(--success){% else %}var(--danger){% endif %};">₹ {{ client_net_before|floatformat:1 }}</strong></td>
-        </tr>
-        <tr>
-            <td><strong>Pending Amount</strong></td>
-            <td><strong style="color: var(--danger);">₹ {{ pending_before|floatformat:1 }}</strong></td>
-        </tr>
-        </tbody>
-    </table>
-</div>
-
-<!-- Balance After Transaction -->
-<div class="table-wrapper" style="margin-bottom: 24px;">
-    <div class="table-header">
-        <div>Balance After Transaction</div>
-    </div>
-    <table>
-        <tbody>
-        <tr>
-            <td><strong>Exchange Balance</strong></td>
-            <td><strong style="font-size: 18px; color: var(--accent);">₹ {{ balance_after|floatformat:1 }}</strong></td>
-        </tr>
-        <tr>
-            <td>Total Funding</td>
-            <td>₹ {{ funding_after|floatformat:1 }}</td>
-        </tr>
-        <tr>
-            <td>Total Profit</td>
-            <td style="color: var(--success);">₹ {{ profit_after|floatformat:1 }}</td>
-        </tr>
-        <tr>
-            <td>Total Loss</td>
-            <td style="color: var(--danger);">₹ {{ loss_after|floatformat:1 }}</td>
-        </tr>
-        <tr>
-            <td><strong>Client Net Balance</strong></td>
-            <td><strong style="color: {% if client_net_after >= 0 %}var(--success){% else %}var(--danger){% endif %};">₹ {{ client_net_after|floatformat:1 }}</strong></td>
-        </tr>
-        <tr>
-            <td><strong>Pending Amount</strong></td>
-            <td><strong style="color: var(--danger);">₹ {{ pending_after|floatformat:1 }}</strong></td>
-        </tr>
-        </tbody>
-    </table>
-</div>
-
-<!-- Impact Summary -->
-<div class="table-wrapper">
-    <div class="table-header">
-        <div>Transaction Impact</div>
-    </div>
-    <table>
-        <tbody>
-        <tr style="background: rgba(59, 130, 246, 0.05);">
-            <td><strong>Exchange Balance Change</strong></td>
-            <td>
-                <strong style="font-size: 18px; color: {% if balance_change >= 0 %}var(--success){% else %}var(--danger){% endif %};">
-                    {% if balance_change >= 0 %}+{% endif %}₹ {{ balance_change|floatformat:1 }}
-                </strong>
-            </td>
-        </tr>
-        <tr>
-            <td><strong>Client Net Balance Change</strong></td>
-            <td>
-                <strong style="color: {% if client_net_change >= 0 %}var(--success){% else %}var(--danger){% endif %};">
-                    {% if client_net_change >= 0 %}+{% endif %}₹ {{ client_net_change|floatformat:1 }}
-                </strong>
-            </td>
-        </tr>
-        <tr>
-            <td><strong>Pending Amount Change</strong></td>
-            <td>
-                <strong style="color: {% if pending_change >= 0 %}var(--danger){% else %}var(--success){% endif %};">
-                    {% if pending_change >= 0 %}+{% endif %}₹ {{ pending_change|floatformat:1 }}
-                </strong>
-            </td>
-        </tr>
-        </tbody>
-    </table>
 </div>
 {% endblock %}
-

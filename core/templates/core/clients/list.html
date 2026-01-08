@@ -5,13 +5,7 @@
 {% block page_subtitle %}Manage clients and their exchanges{% endblock %}
 
 {% block page_actions %}
-    {% if client_type == 'company' %}
-        <a href="{% url 'my_clients:add' %}" class="btn btn-primary">Add Client</a>
-    {% elif client_type == 'my' %}
-        <a href="{% url 'my_clients:add' %}" class="btn btn-primary">Add My Client</a>
-    {% else %}
-    <a href="{% url 'clients:add' %}" class="btn btn-primary">Add Client</a>
-    {% endif %}
+    <a href="{% url 'client_create' %}" class="btn btn-primary">Add Client</a>
 {% endblock %}
 
 {% block content %}
@@ -44,7 +38,7 @@
         <div style="display: flex; gap: 8px; align-items: flex-end;">
         <button type="submit" class="btn btn-primary">Search</button>
             {% if client_search or selected_exchange %}
-            <a href="{% url 'clients:list' %}" class="btn">Clear</a>
+            <a href="{% url 'client_list' %}" class="btn">Clear</a>
         {% endif %}
         </div>
     </form>
@@ -72,28 +66,21 @@
         <tbody>
         {% for client in clients %}
             <tr>
-                <td onclick="window.location='{% url 'my_clients:detail' client.pk %}'" style="cursor:pointer;">{% if client.code %}{{ client.code }}{% else %}<span style="color: var(--muted);">—</span>{% endif %}</td>
-                <td onclick="window.location='{% url 'my_clients:detail' client.pk %}'" style="cursor:pointer;">{{ client.name }}</td>
-                <td onclick="window.location='{% url 'my_clients:detail' client.pk %}'" style="cursor:pointer;">
+                <td onclick="window.location='{% url 'client_detail' client.pk %}'" style="cursor:pointer;">{% if client.code %}{{ client.code }}{% else %}<span style="color: var(--muted);">—</span>{% endif %}</td>
+                <td onclick="window.location='{% url 'client_detail' client.pk %}'" style="cursor:pointer;">{{ client.name }}</td>
+                <td onclick="window.location='{% url 'client_detail' client.pk %}'" style="cursor:pointer;">
                     {% if client.is_company_client %}
                         <span class="badge" style="background: #dbeafe; color: #1e40af;">Company</span>
                     {% else %}
                         <span class="badge" style="background: #f3e8ff; color: #7c3aed;">My Client</span>
                     {% endif %}
                 </td>
-                <td onclick="window.location='{% url 'clients:detail' client.pk %}'" style="cursor:pointer;">
-                    {% if client.is_active %}
-                        <span class="badge badge-success">Active</span>
-                    {% else %}
-                        <span class="badge badge-muted">Inactive</span>
-                    {% endif %}
+                <td onclick="window.location='{% url 'client_detail' client.pk %}'" style="cursor:pointer;">
+                    <span class="badge badge-success">Active</span>
                 </td>
-                <td onclick="window.location='{% url 'clients:detail' client.pk %}'" style="cursor:pointer;">{{ client.client_exchanges.count }}</td>
+                <td onclick="window.location='{% url 'client_detail' client.pk %}'" style="cursor:pointer;">{{ client.exchange_accounts.count }}</td>
                 <td onclick="event.stopPropagation();" style="cursor:default;">
-                    <form method="post" action="{% url 'my_clients:delete' client.pk %}" style="display: inline;">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-sm" style="background: var(--danger); color: white; padding: 4px 12px; font-size: 14px;">Delete</button>
-                    </form>
+                    <a href="{% url 'client_detail' client.pk %}" class="btn btn-sm">View</a>
                 </td>
             </tr>
         {% empty %}

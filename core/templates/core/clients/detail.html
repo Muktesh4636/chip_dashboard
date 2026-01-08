@@ -2,14 +2,12 @@
 
 {% block title %}Client · {{ client.name }}{% endblock %}
 {% block page_title %}{{ client.name }}{% endblock %}
-{% block page_subtitle %}{% if client.code %}Code: {{ client.code }} · {% endif %}Exchanges and recent activity{% endblock %}
+{% block page_subtitle %}{% if client.code %}Code: {{ client.code }} · {% endif %}Exchanges and account details{% endblock %}
 
 {% block page_actions %}
 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-    <a href="{% url 'my_clients:link_exchange' client.pk %}" class="btn btn-primary">Link Exchange</a>
-    <button onclick="showGiveMoneyForm()" class="btn" style="background: var(--success); color: white;">Give Money</button>
-    <a href="{% url 'my_clients:balance' client.pk %}" class="btn">View Balance</a>
-    <a href="{% url 'my_clients:report' client.pk %}" class="btn">View Report</a>
+    <a href="{% url 'exchange_link' %}?client={{ client.pk }}" class="btn btn-primary">Link Exchange</a>
+    <a href="{% url 'client_list' %}" class="btn">Back to Clients</a>
 </div>
 {% endblock %}
 
@@ -17,235 +15,104 @@
 <!-- Client Info Cards -->
 <div class="card-grid" style="margin-bottom: 24px;">
     <div class="card">
-        <div class="card-title">Status</div>
-        <div class="card-value">
-            {% if client.is_active %}
-                <span class="badge badge-success">Active</span>
-            {% else %}
-                <span class="badge badge-muted">Inactive</span>
-            {% endif %}
-        </div>
-    </div>
-    <div class="card">
         <div class="card-title">Client Type</div>
         <div class="card-value">
             {% if client.is_company_client %}
-                <span class="badge" style="background: #e5e7eb; color: var(--text);">Company Client</span>
+                <span class="badge" style="background: #dbeafe; color: #1e40af;">Company Client</span>
             {% else %}
-                <span class="badge" style="background: #e5e7eb; color: var(--text);">My Client</span>
+                <span class="badge" style="background: #f3e8ff; color: #7c3aed;">My Client</span>
             {% endif %}
         </div>
     </div>
     <div class="card">
         <div class="card-title">Linked Exchanges</div>
-        <div class="card-value">{{ client_exchanges|length }} active{% if inactive_client_exchanges|length > 0 %}, {{ inactive_client_exchanges|length }} inactive{% endif %}</div>
+        <div class="card-value">{{ accounts|length }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Total Funding</div>
+        <div class="card-value">{{ total_funding|floatformat:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Total Exchange Balance</div>
+        <div class="card-value">{{ total_exchange_balance|floatformat:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Total Client PnL</div>
+        <div class="card-value {% if total_client_pnl > 0 %}positive{% elif total_client_pnl < 0 %}negative{% endif %}">
+            {{ total_client_pnl|floatformat:0 }}
+        </div>
     </div>
 </div>
+
+{% if client.referred_by %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 16px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <div style="font-size: 14px; color: var(--muted);">Referred By: <strong>{{ client.referred_by }}</strong></div>
+</div>
+{% endif %}
 
 <!-- Exchanges Section -->
+{% if accounts %}
 <div style="background: var(--bg-content); border-radius: 8px; padding: 0; border: 1px solid var(--border); margin-bottom: 24px; overflow: hidden;">
-    <!-- Tabs -->
-    <div style="display: flex; border-bottom: 1px solid var(--border); background: var(--bg-content); align-items: flex-end;">
-        <button onclick="showActiveExchanges()" id="active-tab" class="exchange-tab active-tab" style="flex: 1; padding: 16px 20px; text-align: center; border: none; background: var(--bg-content); color: var(--text); font-weight: 600; font-size: 15px; cursor: pointer; transition: all 0.2s ease; border-bottom: 2px solid var(--accent); margin-bottom: -1px;">
-            Active Exchanges ({{ client_exchanges|length }})
-        </button>
-        {% if inactive_client_exchanges|length > 0 %}
-        <button onclick="showInactiveExchanges()" id="inactive-tab" class="exchange-tab inactive-tab" style="flex: 0 0 auto; padding: 12px 16px; text-align: center; border: none; background: var(--bg-content); color: var(--muted); font-weight: 400; font-size: 13px; cursor: pointer; transition: all 0.2s ease;">
-            Inactive ({{ inactive_client_exchanges|length }})
-        </button>
-        {% endif %}
+    <div class="table-header">
+        <span>Exchange Accounts</span>
+        <span class="pill">Total: {{ accounts|length }}</span>
     </div>
-
-    <!-- Active Exchanges Section -->
-    <div id="active-exchanges-section" style="padding: 20px;">
-        {% if client_exchanges %}
-        <div class="table-wrapper" style="border: none; box-shadow: none;">
-            <table>
-                <thead>
+    <div class="table-wrapper" style="border: none; box-shadow: none;">
+        <table>
+            <thead>
+            <tr>
+                <th>Exchange</th>
+                <th>Funding</th>
+                <th>Exchange Balance</th>
+                <th>Client PnL</th>
+                <th>My Share</th>
+                <th>My %</th>
+                <th>Actions</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for account in accounts %}
+                {% with pnl=account.compute_client_pnl share=account.compute_my_share %}
                 <tr>
-                    <th>Exchange Name</th>
-                    <th>My Share %</th>
-                    {% if client_type == 'company' %}
-                    <th>Company Share %</th>
-                    {% endif %}
-                    <th>Actions</th>
-                </tr>
-                </thead>
-                <tbody>
-                {% for ce in client_exchanges %}
-                    <tr>
-                        <td>
-                            <a href="{% url 'my_clients:balance' client.pk %}?exchange={{ ce.pk }}" style="color: var(--accent); text-decoration: none; font-weight: 500;">
-                                {{ ce.exchange.name }}{% if ce.exchange.code %} ({{ ce.exchange.code }}){% endif %}
-                            </a>
-                        </td>
-                        <td>{{ ce.my_share_pct }}%</td>
-                        {% if client_type == 'company' %}
-                        <td>{{ ce.company_share_pct }}%</td>
+                    <td>
+                        <a href="{% url 'exchange_account_detail' account.pk %}" style="color: var(--accent); text-decoration: none; font-weight: 500;">
+                            {{ account.exchange.name }}{% if account.exchange.code %} ({{ account.exchange.code }}){% endif %}
+                        </a>
+                    </td>
+                    <td>{{ account.funding|floatformat:0 }}</td>
+                    <td>{{ account.exchange_balance|floatformat:0 }}</td>
+                    <td>
+                        {% if pnl == 0 %}
+                            <span style="color: var(--muted);">N.A</span>
+                        {% else %}
+                            <span class="{% if pnl > 0 %}positive{% else %}negative{% endif %}">
+                                {{ pnl|floatformat:0 }}
+                            </span>
                         {% endif %}
-                        <td>
-                            <a href="{% url 'exchanges:edit_client_link' ce.pk %}" class="btn btn-sm">Edit</a>
-                        </td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div style="text-align: center; padding: 40px 20px; color: var(--muted);">
-            <div style="font-size: 16px; margin-bottom: 8px;">No Active Exchanges</div>
-            <div style="font-size: 14px;">Link an exchange to get started</div>
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- Inactive Exchanges Section -->
-    <div id="inactive-exchanges-section" style="display: none; padding: 20px;">
-        {% if inactive_client_exchanges %}
-        <div class="table-wrapper" style="border: none; box-shadow: none;">
-            <table>
-                <thead>
-                <tr>
-                    <th>Exchange Name</th>
-                    <th>My Share %</th>
-                    {% if client_type == 'company' %}
-                    <th>Company Share %</th>
-                    {% endif %}
-                    <th>Actions</th>
-                </tr>
-                </thead>
-                <tbody>
-                {% for ce in inactive_client_exchanges %}
-                    <tr>
-                        <td>
-                            <a href="{% url 'my_clients:balance' client.pk %}?exchange={{ ce.pk }}" style="color: var(--muted); text-decoration: none; font-weight: 500;">
-                                {{ ce.exchange.name }}{% if ce.exchange.code %} ({{ ce.exchange.code }}){% endif %}
-                            </a>
-                        </td>
-                        <td style="color: var(--muted);">{{ ce.my_share_pct }}%</td>
-                        {% if client_type == 'company' %}
-                        <td style="color: var(--muted);">{{ ce.company_share_pct }}%</td>
+                    </td>
+                    <td>
+                        {% if pnl == 0 %}
+                            <span style="color: var(--muted);">N.A</span>
+                        {% else %}
+                            {{ share|floatformat:0 }}
                         {% endif %}
-                        <td>
-                            <a href="{% url 'exchanges:edit_client_link' ce.pk %}" class="btn btn-sm">Edit</a>
-                        </td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div style="text-align: center; padding: 40px 20px; color: var(--muted);">
-            <div style="font-size: 16px; margin-bottom: 8px;">No Inactive Exchanges</div>
-            <div style="font-size: 14px;">All exchanges are currently active</div>
-        </div>
-        {% endif %}
+                    </td>
+                    <td>{{ account.my_percentage }}%</td>
+                    <td>
+                        <a href="{% url 'exchange_account_detail' account.pk %}" class="btn btn-sm">View</a>
+                    </td>
+                </tr>
+                {% endwith %}
+            {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
-
-<!-- Give Money Modal/Form -->
-<div id="give-money-form" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
-    <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <h2 style="font-size: 20px; font-weight: 600; margin: 0;">Give Money to {{ client.name }}</h2>
-            <button onclick="hideGiveMoneyForm()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--muted);">&times;</button>
-        </div>
-        <form method="post" action="{% url 'my_clients:give_money' client.pk %}">
-            {% csrf_token %}
-            <div class="form-row">
-                <label class="field-label">Select Exchange *</label>
-                <select name="client_exchange" class="field-input" required>
-                    <option value="">-- Select an exchange --</option>
-                    {% for ce in client_exchanges %}
-                        <option value="{{ ce.pk }}">{{ ce.exchange.name }}{% if ce.exchange.code %} ({{ ce.exchange.code }}){% endif %}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            
-            <div class="form-row">
-                <label class="field-label">Date *</label>
-                <input type="date" name="date" class="field-input" value="{% now 'Y-m-d' %}" required>
-            </div>
-            
-            <div class="form-row">
-                <label class="field-label">Amount (₹) *</label>
-                <input type="number" name="amount" class="field-input" step="0.01" min="0" required placeholder="0.00">
-            </div>
-            
-            <div class="form-row">
-                <label class="field-label">Note (Optional)</label>
-                <textarea name="note" class="field-input" rows="3" placeholder="Add any notes about this transaction"></textarea>
-            </div>
-            
-            <div style="display: flex; gap: 12px; margin-top: 20px;">
-                <button type="submit" class="btn btn-primary">Give Money</button>
-                <button type="button" onclick="hideGiveMoneyForm()" class="btn">Cancel</button>
-            </div>
-        </form>
-    </div>
+{% else %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 40px; border: 1px solid var(--border); text-align: center; color: var(--muted);">
+    <div style="font-size: 16px; margin-bottom: 8px;">No Exchange Accounts</div>
+    <div style="font-size: 14px; margin-bottom: 16px;">Link an exchange to get started</div>
+    <a href="{% url 'exchange_link' %}?client={{ client.pk }}" class="btn btn-primary">Link Exchange</a>
 </div>
-
-<script>
-    function showGiveMoneyForm() {
-        document.getElementById('give-money-form').style.display = 'flex';
-    }
-    
-    function hideGiveMoneyForm() {
-        document.getElementById('give-money-form').style.display = 'none';
-    }
-    
-    // Close modal when clicking outside
-    document.getElementById('give-money-form').addEventListener('click', function(e) {
-        if (e.target === this) {
-            hideGiveMoneyForm();
-        }
-    });
-    
-    // Exchange tabs functionality
-    function showActiveExchanges() {
-        document.getElementById('active-exchanges-section').style.display = 'block';
-        document.getElementById('inactive-exchanges-section').style.display = 'none';
-        
-        // Update tab styles
-        const activeTab = document.getElementById('active-tab');
-        const inactiveTab = document.getElementById('inactive-tab');
-        
-        activeTab.style.background = 'var(--bg-content)';
-        activeTab.style.fontWeight = '600';
-        activeTab.style.color = 'var(--text)';
-        activeTab.style.borderBottom = '2px solid var(--accent)';
-        activeTab.style.marginBottom = '-1px';
-        
-        if (inactiveTab) {
-            inactiveTab.style.background = 'var(--bg-content)';
-            inactiveTab.style.fontWeight = '400';
-            inactiveTab.style.color = 'var(--muted)';
-            inactiveTab.style.borderBottom = 'none';
-            inactiveTab.style.marginBottom = '0';
-        }
-    }
-    
-    function showInactiveExchanges() {
-        document.getElementById('active-exchanges-section').style.display = 'none';
-        document.getElementById('inactive-exchanges-section').style.display = 'block';
-        
-        // Update tab styles
-        const activeTab = document.getElementById('active-tab');
-        const inactiveTab = document.getElementById('inactive-tab');
-        
-        if (inactiveTab) {
-            inactiveTab.style.background = 'var(--bg-content)';
-            inactiveTab.style.fontWeight = '600';
-            inactiveTab.style.color = 'var(--text)';
-            inactiveTab.style.borderBottom = '2px solid var(--muted)';
-            inactiveTab.style.marginBottom = '-1px';
-        }
-        
-        activeTab.style.background = 'var(--bg-content)';
-        activeTab.style.fontWeight = '400';
-        activeTab.style.color = 'var(--muted)';
-        activeTab.style.borderBottom = 'none';
-        activeTab.style.marginBottom = '0';
-    }
-</script>
+{% endif %}
 {% endblock %}

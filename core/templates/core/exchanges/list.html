@@ -5,7 +5,8 @@
 {% block page_subtitle %}All exchanges configured for all clients{% endblock %}
 
 {% block page_actions %}
-    <a href="{% url 'exchanges:add' %}" class="btn btn-primary">Add Exchange</a>
+    <a href="{% url 'exchange_create' %}" class="btn btn-primary">Add Exchange</a>
+    <a href="{% url 'exchange_link' %}" class="btn btn-primary" style="margin-left: 8px;">Link Client to Exchange</a>
 {% endblock %}
 
 {% block content %}
@@ -28,14 +29,10 @@
                 <td><strong>{{ exchange.name }}</strong></td>
                 <td>{% if exchange.code %}{{ exchange.code }}{% else %}-{% endif %}</td>
                 <td>
-                    {% if exchange.is_active %}
-                        <span class="badge badge-success">Active</span>
-                    {% else %}
-                        <span class="badge badge-muted">Inactive</span>
-                    {% endif %}
+                    <span class="badge badge-success">Active</span>
                 </td>
                 <td>
-                    <a href="{% url 'exchanges:edit' exchange.pk %}" class="btn btn-sm">Edit</a>
+                    <span class="pill">{{ exchange.client_accounts.count }} clients</span>
                 </td>
             </tr>
         {% empty %}

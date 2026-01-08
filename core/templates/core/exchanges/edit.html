@@ -1,35 +1,151 @@
 {% extends "core/base.html" %}
 
-{% block title %}Edit Exchange · Transaction Hub{% endblock %}
-{% block page_title %}Edit Exchange{% endblock %}
-{% block page_subtitle %}{{ exchange.name }}{% endblock %}
+{% block title %}{{ account.client.name }} - {{ account.exchange.name }} · Transaction Hub{% endblock %}
+{% block page_title %}{{ account.client.name }} - {{ account.exchange.name }}{% endblock %}
+{% block page_subtitle %}Account Details & Computed Values{% endblock %}
 
 {% block content %}
-<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); max-width: 600px;">
-    <form method="post">
-        {% csrf_token %}
-        <div class="form-row">
-            <label class="field-label">Exchange Name *</label>
-            <input type="text" name="name" class="field-input" value="{{ exchange.name }}" required>
+{% if messages %}
+    {% for message in messages %}
+        <div style="padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; {% if message.tags == 'success' %}background: #d1fae5; color: #065f46; border: 1px solid #10b981;{% elif message.tags == 'error' %}background: #fee2e2; color: #991b1b; border: 1px solid #dc2626;{% else %}background: #dbeafe; color: #1e40af; border: 1px solid #3b82f6;{% endif %}">
+            {{ message }}
         </div>
-        
-        <div class="form-row">
-            <label class="field-label">Exchange Code (Optional)</label>
-            <input type="text" name="code" class="field-input" value="{{ exchange.code|default:'' }}" placeholder="e.g., EXCH-A">
-        </div>
-        
-        <div class="form-row">
-            <label style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" name="is_active" {% if exchange.is_active %}checked{% endif %}>
-                <span class="field-label" style="margin: 0;">Active</span>
-            </label>
-        </div>
-        
-        <div style="display: flex; gap: 12px; margin-top: 20px;">
-            <button type="submit" class="btn btn-primary">Save Changes</button>
-            <a href="{% url 'exchanges:list' %}" class="btn">Cancel</a>
-        </div>
-    </form>
+    {% endfor %}
+{% endif %}
+
+<div class="card-grid" style="margin-bottom: 24px;">
+    <div class="card">
+        <div class="card-title">Funding</div>
+        <div class="card-value">{{ account.funding|floatformat:0 }}</div>
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Total real money given</div>
+    </div>
+    
+    <div class="card">
+        <div class="card-title">Exchange Balance</div>
+        <div class="card-value">{{ account.exchange_balance|floatformat:0 }}</div>
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Current balance on exchange</div>
+    </div>
+    
+    <div class="card">
+        <div class="card-title">Client PnL (Computed)</div>
+        {% if is_settled %}
+            <div class="card-value">N.A</div>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Fully settled</div>
+        {% else %}
+            <div class="card-value {% if client_pnl > 0 %}positive{% elif client_pnl < 0 %}negative{% endif %}">
+                {{ client_pnl|floatformat:0 }}
+            </div>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">
+                {% if client_pnl > 0 %}Client in PROFIT{% else %}Client in LOSS{% endif %}
+            </div>
+        {% endif %}
+    </div>
+    
+    <div class="card">
+        <div class="card-title">My Share (Computed)</div>
+        {% if is_settled %}
+            <div class="card-value">N.A</div>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Fully settled</div>
+        {% else %}
+            <div class="card-value">{{ my_share|floatformat:0 }}</div>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">{{ account.my_percentage }}% of ABS(PnL)</div>
+        {% endif %}
+    </div>
+</div>
+
+<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); margin-bottom: 24px;">
+    <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">Account Configuration</h3>
+    <table>
+        <tr>
+            <td style="font-weight: 600; color: var(--muted);">Client:</td>
+            <td>{{ account.client.name }}{% if account.client.code %} ({{ account.client.code }}){% endif %}</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: var(--muted);">Exchange:</td>
+            <td>{{ account.exchange.name }}{% if account.exchange.code %} ({{ account.exchange.code }}){% endif %}</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: var(--muted);">My Percentage:</td>
+            <td>{{ account.my_percentage }}%</td>
+        </tr>
+        {% if report_config %}
+        <tr>
+            <td style="font-weight: 600; color: var(--muted);">Friend % (Report):</td>
+            <td>{{ report_config.friend_percentage }}%</td>
+        </tr>
+        <tr>
+            <td style="font-weight: 600; color: var(--muted);">My Own % (Report):</td>
+            <td>{{ report_config.my_own_percentage }}%</td>
+        </tr>
+        {% endif %}
+    </table>
+</div>
+
+{% if report_config %}
+<div class="card-grid" style="margin-bottom: 24px;">
+    <div class="card">
+        <div class="card-title">Friend Share (Report Only)</div>
+        {% if is_settled %}
+            <div class="card-value">N.A</div>
+        {% else %}
+            <div class="card-value">{{ friend_share|floatformat:0 }}</div>
+        {% endif %}
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Not used in settlements</div>
+    </div>
+    
+    <div class="card">
+        <div class="card-title">My Own Share (Report Only)</div>
+        {% if is_settled %}
+            <div class="card-value">N.A</div>
+        {% else %}
+            <div class="card-value">{{ my_own_share|floatformat:0 }}</div>
+        {% endif %}
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Not used in settlements</div>
+    </div>
+</div>
+{% endif %}
+
+<div style="display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
+    <a href="{% url 'add_funding' account.pk %}" class="btn btn-primary">Add Funding</a>
+    <a href="{% url 'update_balance' account.pk %}" class="btn btn-primary">Update Exchange Balance</a>
+    {% if not is_settled %}
+    <a href="{% url 'record_payment' account.pk %}" class="btn btn-primary" style="background: var(--success);">Record Payment</a>
+    {% endif %}
+    <a href="{% url 'client_detail' account.client.pk %}" class="btn">View Client</a>
+</div>
+
+<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border);">
+    <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">Recent Transactions (Audit Trail)</h3>
+    {% if transactions %}
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Amount</th>
+                    <th>Balance After</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for transaction in transactions %}
+                <tr>
+                    <td>{{ transaction.date|date:"Y-m-d H:i" }}</td>
+                    <td>{{ transaction.get_type_display }}</td>
+                    <td>{{ transaction.amount|floatformat:0 }}</td>
+                    <td>{{ transaction.exchange_balance_after|floatformat:0 }}</td>
+                    <td>{{ transaction.notes|default:"—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: var(--muted);">No transactions yet.</p>
+    {% endif %}
+    <div style="margin-top: 16px;">
+        <a href="{% url 'transaction_list' %}?account={{ account.pk }}" class="btn btn-sm">View All Transactions</a>
+    </div>
 </div>
 {% endblock %}
-

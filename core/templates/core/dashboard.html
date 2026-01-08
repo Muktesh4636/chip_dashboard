@@ -5,118 +5,91 @@
 {% block page_subtitle %}Live overview of turnover, profit, and pending payments{% endblock %}
 
 {% block content %}
-<div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
-    <form method="get" id="dashboard-filter-form" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-        <input type="text" name="search" id="search-input" value="{{ search_query }}" class="field-input" placeholder="Quick search (client, exchange)..." style="width: auto; min-width: 200px;">
-        <select name="client" class="field-input" style="width: auto;" onchange="this.form.submit()">
-            <option value="">All Clients</option>
-            {% for client in all_clients %}
-                <option value="{{ client.pk }}" {% if selected_client == client.pk %}selected{% endif %}>{{ client.name }}</option>
-            {% endfor %}
-        </select>
-        <select name="exchange" class="field-input" style="width: auto;" onchange="this.form.submit()">
-            <option value="">All Exchanges</option>
-            {% for exchange in all_exchanges %}
-                <option value="{{ exchange.pk }}" {% if selected_exchange == exchange.pk %}selected{% endif %}>{{ exchange.name }}</option>
-            {% endfor %}
-        </select>
-        <button type="submit" class="btn btn-primary">Search</button>
-        {% if search_query or selected_client or selected_exchange %}
-            <a href="{% url 'dashboard' %}" class="btn">Clear</a>
-        {% endif %}
-    </form>
-</div>
-
-<script>
-// Auto-search functionality - submit form as user types
-(function() {
-    const searchInput = document.getElementById('search-input');
-    const form = document.getElementById('dashboard-filter-form');
-    let searchTimeout;
-    
-    if (searchInput && form) {
-        searchInput.addEventListener('input', function() {
-            // Clear previous timeout
-            clearTimeout(searchTimeout);
-            
-            // Set new timeout to submit after user stops typing for 500ms
-            searchTimeout = setTimeout(function() {
-                form.submit();
-            }, 500);
-        });
-        
-        // Also submit on Enter key
-        searchInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-                clearTimeout(searchTimeout);
-                form.submit();
-            }
-        });
-    }
-})();
-</script>
 <div class="card-grid">
     <div class="card">
-        <div class="card-title">Total Turnover</div>
-        <div class="card-value">₹ {{ total_turnover|default:0|floatformat:1 }}</div>
-        {% if selected_client %}
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">For selected client</div>
-        {% endif %}
-    </div>
-    <div class="card">
-        <div class="card-title">Your Profit</div>
-        <div class="card-value positive">₹ {{ your_profit|default:0|floatformat:1 }}</div>
-        {% if selected_client %}
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">For selected client</div>
-        {% endif %}
-    </div>
-    <div class="card">
-        <div class="card-title">Company Profit</div>
-        <div class="card-value">₹ {{ company_profit|default:0|floatformat:1 }}</div>
-        {% if selected_client %}
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">For selected client</div>
-        {% endif %}
-    </div>
-    <div class="card">
-        <div class="card-title">Clients Owe You</div>
-        <div class="card-value negative">₹ {{ pending_clients_owe|default:0|floatformat:1 }}</div>
-        {% if selected_client %}
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">For selected client</div>
-        {% endif %}
-    </div>
-    <div class="card">
-        <div class="card-title">You Owe Clients</div>
-        <div class="card-value negative">₹ {{ pending_you_owe_clients|default:0|floatformat:1 }}</div>
-        {% if selected_client %}
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">For selected client</div>
-        {% endif %}
-    </div>
-    {% if has_transactions %}
-        {% if selected_client or client_type_filter %}
-        <div class="card">
-            <div class="card-title">Current Balance in Account</div>
-            <div class="card-value" style="color: var(--accent);">₹ {{ current_balance|floatformat:1 }}</div>
-            {% if selected_client %}
-                {% if selected_exchange %}
-                    <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">For selected exchange</div>
-                {% else %}
-                    <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Total across all exchanges</div>
-                {% endif %}
-            {% endif %}
-        </div>
-        {% endif %}
-    {% endif %}
-    {% if not selected_client %}
-    <div class="card">
-        <div class="card-title">Active Clients</div>
-        <div class="card-value">{{ active_clients_count }}</div>
+        <div class="card-title">Total Clients</div>
+        <div class="card-value">{{ total_clients }}</div>
     </div>
     <div class="card">
         <div class="card-title">Total Exchanges</div>
-        <div class="card-value">{{ total_exchanges_count }}</div>
+        <div class="card-value">{{ total_exchanges }}</div>
     </div>
-    {% endif %}
+    <div class="card">
+        <div class="card-title">Total Accounts</div>
+        <div class="card-value">{{ total_accounts }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Total Funding</div>
+        <div class="card-value">{{ total_funding|floatformat:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Total Exchange Balance</div>
+        <div class="card-value">{{ total_exchange_balance|floatformat:0 }}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">Total Client PnL</div>
+        <div class="card-value {% if total_client_pnl > 0 %}positive{% elif total_client_pnl < 0 %}negative{% endif %}">
+            {{ total_client_pnl|floatformat:0 }}
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">Total My Share</div>
+        <div class="card-value">{{ total_my_share|floatformat:0 }}</div>
+    </div>
 </div>
+
+{% if recent_accounts %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); margin-top: 24px;">
+    <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">Recent Accounts</h3>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Client</th>
+                    <th>Exchange</th>
+                    <th>Funding</th>
+                    <th>Balance</th>
+                    <th>PnL</th>
+                    <th>My Share</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for account in recent_accounts %}
+                    {% with pnl=account.compute_client_pnl share=account.compute_my_share %}
+                    <tr>
+                        <td>{{ account.client.name }}</td>
+                        <td>{{ account.exchange.name }}</td>
+                        <td>{{ account.funding|floatformat:0 }}</td>
+                        <td>{{ account.exchange_balance|floatformat:0 }}</td>
+                        <td>
+                            {% if pnl == 0 %}
+                                <span style="color: var(--muted);">N.A</span>
+                            {% else %}
+                                <span class="{% if pnl > 0 %}positive{% else %}negative{% endif %}">
+                                    {{ pnl|floatformat:0 }}
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if pnl == 0 %}
+                                <span style="color: var(--muted);">N.A</span>
+                            {% else %}
+                                {{ share|floatformat:0 }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{% url 'exchange_account_detail' account.pk %}" class="btn btn-sm">View</a>
+                        </td>
+                    </tr>
+                    {% endwith %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 

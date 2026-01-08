@@ -1,0 +1,89 @@
+{% extends "core/base.html" %}
+{% load math_filters %}
+
+{% block title %}Record Payment · Transaction Hub{% endblock %}
+{% block page_title %}Record Payment{% endblock %}
+{% block page_subtitle %}{{ account.client.name }} - {{ account.exchange.name }}{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 500px;">
+    {% if messages %}
+        {% for message in messages %}
+            <div style="padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; {% if message.tags == 'success' %}background: #d1fae5; color: #065f46; border: 1px solid #10b981;{% elif message.tags == 'error' %}background: #fee2e2; color: #991b1b; border: 1px solid #dc2626;{% else %}background: #dbeafe; color: #1e40af; border: 1px solid #3b82f6;{% endif %}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+    
+    <div style="background: #ecfeff; padding: 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #06b6d4;">
+        <div style="font-size: 14px; color: #0e7490; margin-bottom: 8px;"><strong>Current Account Status</strong></div>
+        <div style="font-size: 13px; color: #0e7490;">
+            Funding: {{ account.funding|floatformat:0 }}<br>
+            Exchange Balance: {{ account.exchange_balance|floatformat:0 }}<br>
+            Client PnL: 
+            {% if client_pnl == 0 %}
+                <span style="color: var(--muted);">N.A (Settled)</span>
+            {% else %}
+                <span class="{% if client_pnl > 0 %}positive{% else %}negative{% endif %}">
+                    {{ client_pnl|floatformat:0 }}
+                </span>
+            {% endif %}
+        </div>
+    </div>
+    
+    {% if client_pnl < 0 %}
+    <div style="background: #fef3c7; padding: 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #f59e0b;">
+        <div style="font-size: 13px; color: #92400e;">
+            <strong>LOSS CASE:</strong> Client is in loss (Client_PnL &lt; 0).<br>
+            Recording payment will reduce <strong>funding</strong> by the paid amount.<br>
+            Formula: funding = funding - paid_amount
+        </div>
+    </div>
+    {% elif client_pnl > 0 %}
+    <div style="background: #d1fae5; padding: 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #10b981;">
+        <div style="font-size: 13px; color: #065f46;">
+            <strong>PROFIT CASE:</strong> Client is in profit (Client_PnL &gt; 0).<br>
+            Recording payment will reduce <strong>exchange_balance</strong> by the paid amount.<br>
+            Formula: exchange_balance = exchange_balance - paid_amount
+        </div>
+    </div>
+    {% endif %}
+    
+    <form method="post">
+        {% csrf_token %}
+        {% if form.errors %}
+            <div style="background: #fee2e2; color: #991b1b; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #dc2626;">
+                {% for field, errors in form.errors.items %}
+                    {% for error in errors %}
+                        <div>{{ error }}</div>
+                    {% endfor %}
+                {% endfor %}
+            </div>
+        {% endif %}
+        
+        <div class="form-row">
+            <label class="field-label">Paid Amount *</label>
+            {{ form.paid_amount }}
+            <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">
+                Maximum: {{ client_pnl|abs|floatformat:0 }} (ABS(Client_PnL))
+            </div>
+            {% if form.paid_amount.errors %}
+                <div style="color: var(--danger); font-size: 13px; margin-top: 4px;">{{ form.paid_amount.errors }}</div>
+            {% endif %}
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Notes (Optional)</label>
+            {{ form.notes }}
+        </div>
+        
+        <div style="background: #f3f4f6; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; color: var(--muted);">
+            <strong>Note:</strong> Partial payments are allowed. You can record multiple payments until Client_PnL = 0.
+        </div>
+        
+        <button type="submit" class="btn btn-primary mt-3">Record Payment</button>
+        <a href="{% url 'exchange_account_detail' account.pk %}" class="btn mt-3" style="margin-left: 8px;">Cancel</a>
+    </form>
+</div>
+{% endblock %}
+

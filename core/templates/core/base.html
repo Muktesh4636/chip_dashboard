@@ -491,83 +491,6 @@
             </div>
         </div>
 
-        <!-- Client Type Filter -->
-        <div class="client-filter-wrapper" id="client-filter-wrapper">
-            <div style="font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; font-weight: 600;">Filter</div>
-            <button type="button" class="client-filter-button" id="client-filter-button">
-                <span id="client-filter-selected">
-                    {% if client_type_filter == 'my' %}My Clients
-                    {% else %}All Clients
-                    {% endif %}
-                </span>
-            </button>
-            <div class="client-filter-dropdown" id="client-filter-dropdown">
-                <div class="client-filter-option {% if client_type_filter == 'all' or not client_type_filter %}selected{% endif %}" data-value="all">All Clients</div>
-                <div class="client-filter-option {% if client_type_filter == 'my' %}selected{% endif %}" data-value="my">My Clients</div>
-            </div>
-        </div>
-        <script>
-            function updateClientTypeFilter(value) {
-                // Get current URL
-                const currentUrl = new URL(window.location.href);
-                // Update or add client_type parameter
-                currentUrl.searchParams.set('client_type', value);
-                // Redirect to updated URL
-                window.location.href = currentUrl.toString();
-            }
-            
-            // Custom dropdown that always opens downward
-            document.addEventListener('DOMContentLoaded', function() {
-                const wrapper = document.getElementById('client-filter-wrapper');
-                const button = document.getElementById('client-filter-button');
-                const dropdown = document.getElementById('client-filter-dropdown');
-                const selectedText = document.getElementById('client-filter-selected');
-                const options = dropdown.querySelectorAll('.client-filter-option');
-                
-                if (!wrapper || !button || !dropdown) return;
-                
-                // Toggle dropdown on button click
-                button.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    wrapper.classList.toggle('open');
-                });
-                
-                // Handle option selection
-                options.forEach(option => {
-                    option.addEventListener('click', function() {
-                        const value = this.getAttribute('data-value');
-                        const text = this.textContent;
-                        
-                        // Update selected text
-                        selectedText.textContent = text;
-                        
-                        // Update selected state
-                        options.forEach(opt => opt.classList.remove('selected'));
-                        this.classList.add('selected');
-                        
-                        // Close dropdown
-                        wrapper.classList.remove('open');
-                        
-                        // Update filter
-                        updateClientTypeFilter(value);
-                    });
-                });
-                
-                // Close dropdown when clicking outside
-                document.addEventListener('click', function(e) {
-                    if (!wrapper.contains(e.target)) {
-                        wrapper.classList.remove('open');
-                    }
-                });
-                
-                // Close dropdown on escape key
-                document.addEventListener('keydown', function(e) {
-                    if (e.key === 'Escape' && wrapper.classList.contains('open')) {
-                        wrapper.classList.remove('open');
-                    }
-                });
-            });
-        </script>
 
         <div class="nav-section-label">Main</div>
         <ul class="nav">
@@ -578,19 +501,19 @@
                 </a>
             </li>
             <li class="nav-item" id="nav-my-clients">
-                <a href="{% url 'my_clients:list' %}" class="nav-link {% if request.resolver_match.namespace == 'my_clients' %}active{% endif %}">
+                <a href="{% url 'client_list' %}" class="nav-link {% if request.resolver_match.url_name == 'client_list' or request.resolver_match.url_name == 'client_detail' or request.resolver_match.url_name == 'client_create' %}active{% endif %}">
                     <span class="nav-icon">👤</span>
-                    <span>My Clients</span>
+                    <span>Clients</span>
                 </a>
             </li>
             <li class="nav-item">
-                <a href="{% url 'exchanges:list' %}" id="nav-exchanges-link" class="nav-link {% if request.resolver_match.namespace == 'exchanges' %}active{% endif %}">
+                <a href="{% url 'exchange_list' %}" id="nav-exchanges-link" class="nav-link {% if request.resolver_match.url_name == 'exchange_list' or request.resolver_match.url_name == 'exchange_create' or request.resolver_match.url_name == 'exchange_link' or request.resolver_match.url_name == 'exchange_account_detail' %}active{% endif %}">
                     <span class="nav-icon">🏦</span>
                     <span>Exchanges</span>
                 </a>
             </li>
             <li class="nav-item">
-                <a href="{% url 'transactions:list' %}" id="nav-transactions-link" class="nav-link {% if request.resolver_match.namespace == 'transactions' %}active{% endif %}">
+                <a href="{% url 'transaction_list' %}" id="nav-transactions-link" class="nav-link {% if request.resolver_match.url_name == 'transaction_list' or request.resolver_match.url_name == 'transaction_detail' %}active{% endif %}">
                     <span class="nav-icon">💸</span>
                     <span>Transactions</span>
                 </a>
@@ -600,13 +523,13 @@
         <div class="nav-section-label">Money Movement</div>
         <ul class="nav">
             <li class="nav-item">
-                <a href="{% url 'pending:summary' %}" id="nav-pending-link" class="nav-link {% if request.resolver_match.namespace == 'pending' %}active{% endif %}">
+                <a href="{% url 'pending_summary' %}" id="nav-pending-link" class="nav-link {% if request.resolver_match.url_name == 'pending_summary' %}active{% endif %}">
                     <span class="nav-icon">↔️</span>
                     <span>Pending Payments</span>
                 </a>
             </li>
             <li class="nav-item">
-                <a href="{% url 'reports:overview' %}" id="nav-reports-link" class="nav-link {% if request.resolver_match.namespace == 'reports' %}active{% endif %}">
+                <a href="#" id="nav-reports-link" class="nav-link" onclick="alert('Reports module coming soon'); return false;">
                     <span class="nav-icon">📊</span>
                     <span>Reports</span>
                 </a>

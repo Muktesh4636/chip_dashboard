@@ -1,113 +1,83 @@
 {% extends "core/base.html" %}
 
-{% block title %}Link Exchange to Client · Transaction Hub{% endblock %}
-{% block page_title %}Link Exchange to {{ client.name }}{% endblock %}
-{% block page_subtitle %}Configure exchange percentages for {{ client.name }}{% if client.code %} ({{ client.code }}){% endif %}{% endblock %}
+{% block title %}Link Client to Exchange · Transaction Hub{% endblock %}
+{% block page_title %}Link Client to Exchange{% endblock %}
+{% block page_subtitle %}Configure client-exchange account with percentages{% endblock %}
 
 {% block content %}
-<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); max-width: 600px;">
+<div class="card" style="max-width: 500px;">
+    {% if messages %}
+        {% for message in messages %}
+            <div style="padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; {% if message.tags == 'success' %}background: #d1fae5; color: #065f46; border: 1px solid #10b981;{% elif message.tags == 'error' %}background: #fee2e2; color: #991b1b; border: 1px solid #dc2626;{% else %}background: #dbeafe; color: #1e40af; border: 1px solid #3b82f6;{% endif %}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+    
     <form method="post">
         {% csrf_token %}
-        <div class="form-row">
-            <label class="field-label">Select Exchange *</label>
-            <select name="exchange" id="exchange-select" class="field-input" required>
-                <option value="">Choose an exchange</option>
-                {% for exchange in exchanges %}
-                    <option value="{{ exchange.pk }}">{{ exchange.name }}{% if exchange.code %} ({{ exchange.code }}){% endif %}</option>
+        {% if form.errors %}
+            <div style="background: #fee2e2; color: #991b1b; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #dc2626;">
+                {% for field, errors in form.errors.items %}
+                    {% for error in errors %}
+                        <div>{{ error }}</div>
+                    {% endfor %}
                 {% endfor %}
-            </select>
-        </div>
-        
-        <div class="form-row">
-            <label class="field-label">My Share % (Your share of profits) *</label>
-            <input type="number" name="my_share_pct" id="my-share-input" class="field-input" step="0.01" min="0" max="100" required placeholder="e.g., 10.00" {% if client_type == 'company' %}oninput="validateCompanyShare()"{% endif %}>
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your percentage share of profits</div>
-        </div>
-        
-        {% if client_type == 'company' %}
-        <div class="form-row">
-            <label class="field-label">Company Share % (From CLIENT's share) *</label>
-            <input type="number" name="company_share_pct" id="company-share-input" class="field-input" step="0.01" min="0" max="100" required placeholder="e.g., 9.00" oninput="validateCompanyShare(); updateExample()">
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">
-                Percentage of CLIENT's share that company gets. Example: If your share is 30% and company share is 9%, company gets 9% of the client's 70% share.
             </div>
-            <div id="example-calculation" style="font-size: 12px; color: var(--accent); margin-top: 4px; font-weight: 500; display: none;"></div>
-            <div id="validation-message" style="font-size: 12px; color: var(--danger); margin-top: 4px; display: none;"></div>
-            {% if error %}
-                <div style="font-size: 12px; color: var(--danger); margin-top: 4px;">{{ error }}</div>
-            {% endif %}
-        </div>
         {% endif %}
         
         <div class="form-row">
-            <label style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" name="is_active" checked>
-                <span class="field-label" style="margin: 0;">Active</span>
-            </label>
+            <label class="field-label">Client *</label>
+            {{ form.client }}
+            {% if form.client.errors %}
+                <div style="color: var(--danger); font-size: 13px; margin-top: 4px;">{{ form.client.errors }}</div>
+            {% endif %}
         </div>
         
-        <div style="display: flex; gap: 12px; margin-top: 20px;">
-            <button type="submit" class="btn btn-primary" id="submit-btn">Link Exchange</button>
-            <a href="{% url 'my_clients:detail' client.pk %}" class="btn">Cancel</a>
+        <div class="form-row">
+            <label class="field-label">Exchange *</label>
+            {{ form.exchange }}
+            {% if form.exchange.errors %}
+                <div style="color: var(--danger); font-size: 13px; margin-top: 4px;">{{ form.exchange.errors }}</div>
+            {% endif %}
         </div>
+        
+        <div class="form-row">
+            <label class="field-label">My Total % *</label>
+            {{ form.my_percentage }}
+            <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">
+                Your total percentage share (0-100). Used for system logic.
+            </div>
+            {% if form.my_percentage.errors %}
+                <div style="color: var(--danger); font-size: 13px; margin-top: 4px;">{{ form.my_percentage.errors }}</div>
+            {% endif %}
+        </div>
+        
+        <div style="border-top: 1px solid var(--border); margin: 20px 0; padding-top: 20px;">
+            <div style="font-size: 14px; color: var(--muted); margin-bottom: 12px;">
+                <strong>Report Configuration (Optional)</strong><br>
+                These percentages are used ONLY for reports, not system logic.
+            </div>
+            
+            <div class="form-row">
+                <label class="field-label">Friend % (Report Only)</label>
+                {{ form.friend_percentage }}
+                <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">
+                    Friend/Student percentage. Must equal: My Total % - My Own %
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <label class="field-label">My Own % (Report Only)</label>
+                {{ form.my_own_percentage }}
+                <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">
+                    Your own percentage. Friend % + My Own % must equal My Total %
+                </div>
+            </div>
+        </div>
+        
+        <button type="submit" class="btn btn-primary mt-3">Link Client to Exchange</button>
+        <a href="{% url 'exchange_list' %}" class="btn mt-3" style="margin-left: 8px;">Cancel</a>
     </form>
 </div>
-
-<script>
-{% if client_type == 'company' %}
-function validateCompanyShare() {
-    const companyShareInput = document.getElementById('company-share-input');
-    if (!companyShareInput) return;
-    
-    const companyShare = parseFloat(companyShareInput.value) || 0;
-    const messageDiv = document.getElementById('validation-message');
-    const submitBtn = document.getElementById('submit-btn');
-    
-    if (companyShare >= 100) {
-        messageDiv.textContent = 'Company share must be less than 100%';
-        messageDiv.style.display = 'block';
-        submitBtn.disabled = true;
-        submitBtn.style.opacity = '0.5';
-    } else {
-        messageDiv.style.display = 'none';
-        submitBtn.disabled = false;
-        submitBtn.style.opacity = '1';
-    }
-}
-
-function updateExample() {
-    const myShareInput = document.getElementById('my-share-input');
-    const companyShareInput = document.getElementById('company-share-input');
-    const exampleDiv = document.getElementById('example-calculation');
-    
-    if (!myShareInput || !companyShareInput || !exampleDiv) return;
-    
-    const myShare = parseFloat(myShareInput.value) || 0;
-    const companyShare = parseFloat(companyShareInput.value) || 0;
-    
-    if (myShare > 0 && companyShare > 0 && companyShare < 100 && myShare < 100) {
-        const exampleProfit = 1000;
-        const yourProfit = (exampleProfit * myShare) / 100;
-        const clientShare = exampleProfit - yourProfit;
-        const companyGets = (clientShare * companyShare) / 100;
-        const clientKeeps = clientShare - companyGets;
-        
-        exampleDiv.innerHTML = `Example: If profit is ₹${exampleProfit}, you get ₹${yourProfit.toFixed(2)} (${myShare}%), client gets ₹${clientShare.toFixed(2)} (${100-myShare}%), company gets ₹${companyGets.toFixed(2)} (${companyShare}% of client's ${100-myShare}%), client keeps ₹${clientKeeps.toFixed(2)}`;
-        exampleDiv.style.display = 'block';
-    } else {
-        exampleDiv.style.display = 'none';
-    }
-}
-
-// Update example when my share changes too
-const myShareInput = document.getElementById('my-share-input');
-if (myShareInput) {
-    myShareInput.addEventListener('input', function() {
-        validateCompanyShare();
-        updateExample();
-    });
-}
-{% endif %}
-</script>
 {% endblock %}
-

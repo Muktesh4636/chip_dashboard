@@ -2,40 +2,44 @@
 
 {% block title %}Add Exchange · Transaction Hub{% endblock %}
 {% block page_title %}Add Exchange{% endblock %}
-{% block page_subtitle %}Create a new standalone exchange (A, B, C, D, etc.){% endblock %}
+{% block page_subtitle %}Create a new exchange platform{% endblock %}
 
 {% block content %}
-<div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); max-width: 600px;">
+<div class="card" style="max-width: 420px;">
+    {% if messages %}
+        {% for message in messages %}
+            <div style="padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; {% if message.tags == 'success' %}background: #d1fae5; color: #065f46; border: 1px solid #10b981;{% elif message.tags == 'error' %}background: #fee2e2; color: #991b1b; border: 1px solid #dc2626;{% else %}background: #dbeafe; color: #1e40af; border: 1px solid #3b82f6;{% endif %}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+    
     <form method="post">
         {% csrf_token %}
+        {% if form.errors %}
+            <div style="background: #fee2e2; color: #991b1b; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #dc2626;">
+                Please correct the errors below.
+            </div>
+        {% endif %}
+        
         <div class="form-row">
             <label class="field-label">Exchange Name *</label>
-            <input type="text" name="name" class="field-input" required placeholder="e.g., A, B, C, D, Binance, Coinbase">
+            {{ form.name }}
+            {% if form.name.errors %}
+                <div style="color: var(--danger); font-size: 13px; margin-top: 4px;">{{ form.name.errors }}</div>
+            {% endif %}
         </div>
         
         <div class="form-row">
-            <label class="field-label">Exchange Code (Optional)</label>
-            <input type="text" name="code" class="field-input" placeholder="e.g., EXCH-A">
+            <label class="field-label">Exchange Code <span style="color: var(--muted); font-weight: normal;">(Optional)</span></label>
+            {{ form.code }}
+            {% if form.code.errors %}
+                <div style="color: var(--danger); font-size: 13px; margin-top: 4px;">{{ form.code.errors }}</div>
+            {% endif %}
         </div>
         
-        <div class="form-row">
-            <label style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" name="is_active" checked>
-                <span class="field-label" style="margin: 0;">Active</span>
-            </label>
-        </div>
-        
-        <div style="background: #f9fafb; padding: 16px; border-radius: 6px; margin: 16px 0;">
-            <div style="font-size: 13px; color: var(--muted);">
-                <strong>Note:</strong> After creating the exchange, you can link it to clients with specific profit/loss percentages from the client detail page.
-            </div>
-        </div>
-        
-        <div style="display: flex; gap: 12px; margin-top: 20px;">
-            <button type="submit" class="btn btn-primary">Create Exchange</button>
-            <a href="{% url 'exchanges:list' %}" class="btn">Cancel</a>
-        </div>
+        <button type="submit" class="btn btn-primary mt-3">Save Exchange</button>
+        <a href="{% url 'exchange_list' %}" class="btn mt-3" style="margin-left: 8px;">Cancel</a>
     </form>
 </div>
 {% endblock %}
-
