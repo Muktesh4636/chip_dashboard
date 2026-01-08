@@ -354,7 +354,7 @@ def dashboard(request):
         "total_exchanges_count": Exchange.objects.count(),
         "recent_transactions": transactions_qs[:10],
         "all_clients": clients_qs.order_by("name"),
-        "all_exchanges": Exchange.objects.filter(is_active=True).order_by("name"),
+        "all_exchanges": Exchange.objects.all().order_by("name"),
         "selected_client": int(client_id) if client_id else None,
         "selected_exchange": int(exchange_id) if exchange_id else None,
         "search_query": search_query,
@@ -390,7 +390,7 @@ def client_list(request):
         ).distinct()
     
     # Get all exchanges for dropdown
-    all_exchanges = Exchange.objects.filter(is_active=True).order_by("name")
+    all_exchanges = Exchange.objects.all().order_by("name")
     
     return render(request, "core/clients/list.html", {
         "clients": clients,
@@ -429,7 +429,7 @@ def my_clients_list(request):
         ).distinct()
     
     # Get all exchanges for dropdown
-    all_exchanges = Exchange.objects.filter(is_active=True).order_by("name")
+    all_exchanges = Exchange.objects.all().order_by("name")
     
     return render(request, "core/clients/list.html", {
         "clients": clients,
@@ -448,8 +448,7 @@ def client_detail(request, pk):
 
     client = get_object_or_404(Client, pk=pk, user=request.user)
 
-    active_client_exchanges = client.exchange_accounts.select_related("exchange").filter(is_active=True).all()
-    inactive_client_exchanges = client.exchange_accounts.select_related("exchange").filter(is_active=False).all()
+    client_exchanges = client.exchange_accounts.select_related("exchange").all()
     transactions = (
         Transaction.objects.filter(client_exchange__client=client)
         .select_related("client_exchange", "client_exchange__exchange")
@@ -462,10 +461,8 @@ def client_detail(request, pk):
         "core/clients/detail.html",
         {
             "client": client,
-
-            "client_exchanges": active_client_exchanges,
-
-            "inactive_client_exchanges": inactive_client_exchanges,
+            "client_exchanges": client_exchanges,
+            "inactive_client_exchanges": [],
 
             "transactions": transactions,
 
@@ -803,12 +800,12 @@ def transaction_list(request):
     
     # Filter clients based on client_type for the dropdown
     # All clients are now my clients - no filter needed
-    all_clients_qs = Client.objects.filter(user=request.user, is_active=True)
+    all_clients_qs = Client.objects.filter(user=request.user)
     
     # Validate that selected client exists and belongs to the current user
     if client_id:
         try:
-            Client.objects.get(pk=client_id, user=request.user, is_active=True)
+            Client.objects.get(pk=client_id, user=request.user)
         except Client.DoesNotExist:
             client_id = None
 
@@ -817,7 +814,7 @@ def transaction_list(request):
     return render(request, "core/transactions/list.html", {
         "transactions": transactions,
         "all_clients": all_clients_qs.order_by("name"),
-        "all_exchanges": Exchange.objects.filter(is_active=True).order_by("name"),
+        "all_exchanges": Exchange.objects.all().order_by("name"),
         "selected_client": int(client_id) if client_id else None,
         "selected_exchange": int(exchange_id) if exchange_id else None,
         "start_date": start_date_str,
@@ -918,7 +915,6 @@ def pending_summary(request):
     # Get all active client exchanges
     client_exchanges = ClientExchangeAccount.objects.filter(
         client__user=request.user,
-        is_active=True
     ).select_related("client", "exchange").all()
     
     # Filter by client type if specified
@@ -1121,7 +1117,7 @@ def export_pending_csv(request):
         end_date = today
     
     # Get all client exchanges for the user
-    client_exchanges = ClientExchangeAccount.objects.filter(client__user=request.user, is_active=True)
+    client_exchanges = ClientExchangeAccount.objects.filter(client__user=request.user)
     
     # All clients are now my clients - no filter needed
     # client_exchanges already contains all clients
@@ -1635,7 +1631,7 @@ def report_overview(request):
     
     # Get clients for dropdown (filtered by client_type if applicable)
     # All clients are now my clients - no filter needed
-    clients_qs = Client.objects.filter(user=request.user, is_active=True)
+    clients_qs = Client.objects.filter(user=request.user)
     all_clients = clients_qs.order_by("name")
     
     # Get selected client if specified
@@ -2047,13 +2043,11 @@ def exchange_create(request):
         
         name = request.POST.get("name", "").strip()
         code = request.POST.get("code", "").strip()
-        is_active = request.POST.get("is_active") == "on"
         
         if name:
             Exchange.objects.create(
                 name=name,
                 code=code if code else None,
-                is_active=is_active,
             )
             return redirect("exchange_list")
 
@@ -2072,7 +2066,6 @@ def exchange_edit(request, pk):
     if request.method == "POST":
 
         exchange.code = request.POST.get("code", "").strip() or None
-        exchange.is_active = request.POST.get("is_active") == "on"
         exchange.save()
         return redirect(reverse("exchanges:list"))
     
@@ -2087,13 +2080,12 @@ def client_exchange_create(request, client_pk):
 
     """Link a client to an exchange with specific percentages."""
     client = get_object_or_404(Client, pk=client_pk, user=request.user)
-    exchanges = Exchange.objects.filter(is_active=True).order_by("name")
+    exchanges = Exchange.objects.all().order_by("name")
     
     if request.method == "POST":
 
         my_share = request.POST.get("my_share_pct")
         company_share = request.POST.get("company_share_pct")
-        is_active = request.POST.get("is_active") == "on"
         
         if exchange_id and my_share and company_share:
 
@@ -2124,7 +2116,6 @@ def client_exchange_create(request, client_pk):
                 exchange=exchange,
                 my_share_pct=my_share_decimal,
                 company_share_pct=company_share_decimal,
-                is_active=is_active,
             )
             
             # Redirect to appropriate namespace based on client type
@@ -2149,11 +2140,10 @@ def my_client_exchange_create(request, client_pk):
 
     """Link an exchange to a client."""
     client = get_object_or_404(Client, pk=client_pk, user=request.user)
-    exchanges = Exchange.objects.filter(is_active=True).order_by("name")
+    exchanges = Exchange.objects.all().order_by("name")
     
     if request.method == "POST":
         my_share = request.POST.get("my_share_pct")
-        is_active = request.POST.get("is_active") == "on"
         
         if exchange_id and my_share:
             my_share_decimal = Decimal(my_share)
@@ -2162,7 +2152,6 @@ def my_client_exchange_create(request, client_pk):
                 client=client,
                 exchange=exchange,
                 my_share_pct=my_share_decimal,
-                is_active=is_active,
             )
             
             return redirect(reverse("my_clients:detail", args=[client.pk]))
@@ -2229,7 +2218,7 @@ def client_exchange_edit(request, pk):
             client_exchange.exchange = new_exchange
         
         elif request.POST.get("exchange") and not can_edit_exchange:
-            exchanges = Exchange.objects.filter(is_active=True).order_by("name")
+            exchanges = Exchange.objects.all().order_by("name")
             days_remaining = 0
             client_type = "company" if False else "my"
             
@@ -2254,14 +2243,13 @@ def client_exchange_edit(request, pk):
         
         client_exchange.my_share_pct = my_share
         client_exchange.company_share_pct = company_share
-        client_exchange.is_active = request.POST.get("is_active") == "on"
         client_exchange.save()
         # Redirect to client detail
         return redirect("client_detail", pk=client_exchange.client.pk)
 
     
     # GET request - prepare context
-    exchanges = Exchange.objects.filter(is_active=True).order_by("name") if can_edit_exchange else None
+    exchanges = Exchange.objects.all().order_by("name") if can_edit_exchange else None
     days_remaining = (10 - days_since_creation) if can_edit_exchange else 0
     client_type = "company" if False else "my"
     
@@ -2284,7 +2272,7 @@ def transaction_create(request):
 
     """Create a new transaction with auto-calculation."""
     from datetime import date as date_today
-    clients = Client.objects.filter(user=request.user, is_active=True).order_by("name")
+    clients = Client.objects.filter(user=request.user).order_by("name")
     
     if request.method == "POST":
 
@@ -2365,7 +2353,7 @@ def transaction_create(request):
     
     # Get client-exchanges for selected client (if provided)
     client_id = request.GET.get("client")
-    client_exchanges = ClientExchangeAccount.objects.filter(client__user=request.user, is_active=True).select_related("client", "exchange")
+    client_exchanges = ClientExchangeAccount.objects.filter(client__user=request.user).select_related("client", "exchange")
     if client_id:
 
         pass

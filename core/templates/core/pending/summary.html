@@ -85,10 +85,10 @@
         <div style="text-align: center; padding: 40px; color: var(--muted);">
             <div style="font-size: 16px; margin-bottom: 8px;">No clients owe you</div>
             <div style="font-size: 14px;">All clients are either settled or in profit</div>
-    </div>
-        {% endif %}
-    </div>
 </div>
+            {% endif %}
+        </div>
+    </div>
 
 <!-- You Owe Clients Section -->
 <div id="section-you-owe" class="section-content" style="display: none;">
@@ -103,17 +103,17 @@
         <div class="table-wrapper">
             <table>
             <thead>
-                <tr>
+            <tr>
                 <th>Client</th>
-                    <th>Exchange</th>
+                <th>Exchange</th>
                 <th>Funding</th>
                 <th>Exchange Balance</th>
                 <th>Client PnL</th>
                 <th>Client Profit</th>
                 <th>My Share (You Pay)</th>
                 <th>My %</th>
-                    <th>Actions</th>
-                </tr>
+                <th>Actions</th>
+            </tr>
             </thead>
             <tbody>
                 {% for item in you_owe_clients %}
@@ -137,7 +137,7 @@
                         <a href="{% url 'exchange_account_detail' item.account.pk %}" class="btn btn-sm">View Account</a>
                     </td>
                 </tr>
-                {% endfor %}
+            {% endfor %}
             </tbody>
         </table>
     </div>
