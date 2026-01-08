@@ -19,31 +19,43 @@
         <div style="font-size: 13px; color: #0e7490;">
             Funding: {{ account.funding|floatformat:0 }}<br>
             Exchange Balance: {{ account.exchange_balance|floatformat:0 }}<br>
-            Client PnL: 
-            {% if client_pnl == 0 %}
-                <span style="color: var(--muted);">N.A (Settled)</span>
+            {% if final_share == 0 %}
+                <div style="margin-top: 8px; padding: 8px; background: #fef3c7; border-radius: 4px; color: #92400e;">
+                    <strong>No settlement allowed:</strong> Final share is zero (share percentage too small or PnL too small).
+                </div>
+                <div style="margin-top: 8px;">
+                    <strong>Final Share:</strong> <span style="color: var(--muted);">N.A</span><br>
+                    <strong>Remaining to Settle:</strong> <span style="color: var(--muted);">N.A</span>
+                </div>
             {% else %}
-                <span class="{% if client_pnl > 0 %}positive{% else %}negative{% endif %}">
-                    {{ client_pnl|floatformat:0 }}
-                </span>
+                <div style="margin-top: 8px;">
+                    <strong>Final Share:</strong> {{ final_share|floatformat:0 }}<br>
+                    <strong>Remaining to Settle:</strong> {{ remaining_amount|floatformat:0 }}
+                </div>
             {% endif %}
         </div>
     </div>
     
-    {% if client_pnl < 0 %}
+    {% if final_share == 0 %}
+        {# Zero-share behavior: No settlement allowed #}
+    {% elif client_pnl < 0 %}
     <div style="background: #fef3c7; padding: 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #f59e0b;">
         <div style="font-size: 13px; color: #92400e;">
-            <strong>LOSS CASE:</strong> Client is in loss (Client_PnL &lt; 0).<br>
-            Recording payment will reduce <strong>funding</strong> by the paid amount.<br>
-            Formula: funding = funding - paid_amount
+            <strong>LOSS CASE:</strong> Client is in loss.<br>
+            Recording payment will reduce <strong>funding</strong> by masked capital.<br>
+            Formula: Funding = Funding − MaskedCapital<br>
+            Where: MaskedCapital = SharePayment × share_percentage<br>
+            <strong>Remaining settlement amount: {{ remaining_amount|floatformat:0 }}</strong>
         </div>
     </div>
     {% elif client_pnl > 0 %}
     <div style="background: #d1fae5; padding: 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #10b981;">
         <div style="font-size: 13px; color: #065f46;">
-            <strong>PROFIT CASE:</strong> Client is in profit (Client_PnL &gt; 0).<br>
-            Recording payment will reduce <strong>exchange_balance</strong> by the paid amount.<br>
-            Formula: exchange_balance = exchange_balance - paid_amount
+            <strong>PROFIT CASE:</strong> Client is in profit.<br>
+            Recording payment will reduce <strong>exchange_balance</strong> by masked capital.<br>
+            Formula: ExchangeBalance = ExchangeBalance − MaskedCapital<br>
+            Where: MaskedCapital = SharePayment × share_percentage<br>
+            <strong>Remaining settlement amount: {{ remaining_amount|floatformat:0 }}</strong>
         </div>
     </div>
     {% endif %}
@@ -51,11 +63,19 @@
     <form method="post">
         {% csrf_token %}
         <div class="form-row">
-            <label class="field-label">Paid Amount *</label>
-            <input type="number" name="paid_amount" class="field-input" min="1" max="{{ abs_client_pnl }}" required>
-            <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">
-                Maximum: {{ abs_client_pnl|floatformat:0 }} (ABS(Client_PnL))
-            </div>
+            <label class="field-label">Share Payment (in share units) *</label>
+            {% if final_share == 0 %}
+                <input type="number" name="amount" class="field-input" disabled>
+                <div style="font-size: 13px; color: var(--danger); margin-top: 4px;">
+                    No settlement allowed: Final share is zero.
+                </div>
+            {% else %}
+                <input type="number" name="amount" class="field-input" min="1" max="{{ remaining_amount }}" required>
+                <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">
+                    Maximum: {{ remaining_amount|floatformat:0 }} (Remaining settlement amount)<br>
+                    <small>Note: This is SharePayment. MaskedCapital = SharePayment × share_percentage will be calculated automatically.</small>
+                </div>
+            {% endif %}
         </div>
         
         <div class="form-row">
@@ -64,11 +84,15 @@
         </div>
         
         <div style="background: #f3f4f6; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; color: var(--muted);">
-            <strong>Note:</strong> Partial payments are allowed. You can record multiple payments until Client_PnL = 0.
+            <strong>Note:</strong> Partial payments are allowed. You can record multiple payments until remaining settlement amount = 0.
         </div>
         
         <div style="display: flex; gap: 12px; margin-top: 20px;">
-            <button type="submit" class="btn btn-primary">Record Payment</button>
+            {% if final_share == 0 %}
+                <button type="button" class="btn" disabled>No Settlement Allowed</button>
+            {% else %}
+                <button type="submit" class="btn btn-primary">Record Payment</button>
+            {% endif %}
             {% if request.GET.redirect_to == 'pending_summary' %}
                 <a href="{% url 'pending_summary' %}" class="btn">Cancel</a>
             {% else %}

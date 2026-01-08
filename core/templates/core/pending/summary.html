@@ -58,8 +58,8 @@
     <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); margin-bottom: 24px;">
         <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">Clients Owe You</h3>
         <p style="color: var(--muted); margin-bottom: 16px;">
-            These clients are in LOSS (Client_PnL &lt; 0). They owe you the full loss amount. 
-            Your share is {{ total_my_share_clients_owe|floatformat:0 }}.
+            These clients are in LOSS. They owe you settlement amounts.
+            Remaining to settle: {{ total_my_share_clients_owe|floatformat:0 }}.
         </p>
         
         {% if clients_owe_you %}
@@ -72,9 +72,9 @@
                 <th>Funding</th>
                 <th>Exchange Balance</th>
                 <th>Client PnL</th>
-                <th>Amount Owed</th>
-                <th>My Share</th>
-                <th>My %</th>
+                <th>Final Share</th>
+                <th>Remaining</th>
+                <th>Share %</th>
                 <th>Actions</th>
             </tr>
             </thead>
@@ -90,13 +90,35 @@
                     <td>{{ item.account.funding|floatformat:0 }}</td>
                     <td>{{ item.account.exchange_balance|floatformat:0 }}</td>
                     <td>
-                        <span class="negative">{{ item.client_pnl|floatformat:0 }}</span>
+                        {% if item.show_na %}
+                            <span style="color: var(--muted);">N.A</span>
+                        {% else %}
+                            <span class="negative">{{ item.client_pnl|floatformat:0 }}</span>
+                        {% endif %}
                     </td>
-                    <td><strong>{{ item.amount_owed|floatformat:0 }}</strong></td>
-                    <td>{{ item.my_share_amount|floatformat:0 }}</td>
-                    <td>{{ item.account.my_percentage }}%</td>
                     <td>
-                        <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
+                        {% if item.show_na %}
+                            <span style="color: var(--muted);">N.A</span>
+                        {% else %}
+                            <strong>{{ item.my_share_amount|floatformat:0 }}</strong>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.show_na %}
+                            <span style="color: var(--muted);">N.A</span>
+                        {% else %}
+                            <strong style="color: var(--accent);">{{ item.remaining_amount|floatformat:0 }}</strong>
+                        {% endif %}
+                    </td>
+                    <td>{{ item.share_percentage }}%</td>
+                    <td>
+                        {% if item.show_na %}
+                            <span style="color: var(--muted); font-size: 12px;">N.A</span>
+                        {% elif item.remaining_amount > 0 %}
+                            <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
+                        {% else %}
+                            <span style="color: var(--muted); font-size: 12px;">Settled</span>
+                        {% endif %}
                         <a href="{% url 'exchange_account_detail' item.account.pk %}" class="btn btn-sm">View Account</a>
                     </td>
                 </tr>
@@ -118,25 +140,25 @@
     <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); margin-bottom: 24px;">
         <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">You Owe Clients</h3>
         <p style="color: var(--muted); margin-bottom: 16px;">
-            These clients are in PROFIT (Client_PnL &gt; 0). You owe them your share of the profit. 
-            Total your share: {{ total_my_share_you_owe|floatformat:0 }}.
+            These clients are in PROFIT. You owe them settlement amounts.
+            Remaining to settle: {{ total_my_share_you_owe|floatformat:0 }}.
         </p>
         
         {% if you_owe_clients %}
         <div class="table-wrapper">
             <table>
             <thead>
-            <tr>
+                <tr>
                 <th>Client</th>
-                <th>Exchange</th>
+                    <th>Exchange</th>
                 <th>Funding</th>
                 <th>Exchange Balance</th>
                 <th>Client PnL</th>
-                <th>Client Profit</th>
-                <th>My Share (You Pay)</th>
-                <th>My %</th>
-                <th>Actions</th>
-            </tr>
+                <th>Final Share</th>
+                <th>Remaining</th>
+                <th>Share %</th>
+                    <th>Actions</th>
+                </tr>
             </thead>
             <tbody>
                 {% for item in you_owe_clients %}
@@ -150,13 +172,35 @@
                     <td>{{ item.account.funding|floatformat:0 }}</td>
                     <td>{{ item.account.exchange_balance|floatformat:0 }}</td>
                     <td>
-                        <span class="positive">{{ item.client_pnl|floatformat:0 }}</span>
+                        {% if item.show_na %}
+                            <span style="color: var(--muted);">N.A</span>
+                        {% else %}
+                            <span class="positive">{{ item.client_pnl|floatformat:0 }}</span>
+                        {% endif %}
                     </td>
-                    <td><strong>{{ item.amount_owed|floatformat:0 }}</strong></td>
-                    <td><strong style="color: var(--danger);">{{ item.my_share_amount|floatformat:0 }}</strong></td>
-                    <td>{{ item.account.my_percentage }}%</td>
                     <td>
-                        <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
+                        {% if item.show_na %}
+                            <span style="color: var(--muted);">N.A</span>
+                        {% else %}
+                            <strong>{{ item.my_share_amount|floatformat:0 }}</strong>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.show_na %}
+                            <span style="color: var(--muted);">N.A</span>
+                        {% else %}
+                            <strong style="color: var(--danger);">{{ item.remaining_amount|floatformat:0 }}</strong>
+                        {% endif %}
+                    </td>
+                    <td>{{ item.share_percentage }}%</td>
+                    <td>
+                        {% if item.show_na %}
+                            <span style="color: var(--muted); font-size: 12px;">N.A</span>
+                        {% elif item.remaining_amount > 0 %}
+                            <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
+                        {% else %}
+                            <span style="color: var(--muted); font-size: 12px;">Settled</span>
+                        {% endif %}
                         <a href="{% url 'exchange_account_detail' item.account.pk %}" class="btn btn-sm">View Account</a>
                     </td>
                 </tr>

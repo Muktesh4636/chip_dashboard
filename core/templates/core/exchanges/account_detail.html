@@ -8,8 +8,8 @@
 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
     <a href="{% url 'add_funding' account.pk %}" class="btn btn-primary">Add Funding</a>
     <a href="{% url 'update_balance' account.pk %}" class="btn btn-primary">Update Balance</a>
-    {% with pnl=account.compute_client_pnl %}
-        {% if pnl != 0 %}
+    {% with pnl=account.compute_client_pnl share=account.compute_my_share %}
+        {% if pnl != 0 and share > 0 %}
             <a href="{% url 'record_payment' account.pk %}" class="btn" style="background: #fef3c7; color: #92400e;">Record Payment</a>
         {% endif %}
     {% endwith %}
@@ -18,7 +18,7 @@
 {% endblock %}
 
 {% block content %}
-{% with pnl=account.compute_client_pnl share=account.compute_my_share %}
+{% with pnl=account.compute_client_pnl share=account.compute_my_share remaining=account.get_remaining_settlement_amount %}
 <!-- Account Summary Cards -->
 <div class="card-grid" style="margin-bottom: 24px;">
     <div class="card">
@@ -32,32 +32,50 @@
     <div class="card">
         <div class="card-title">Client PnL</div>
         <div class="card-value {% if pnl > 0 %}positive{% elif pnl < 0 %}negative{% endif %}">
-            {% if pnl == 0 %}
-                <span style="color: var(--muted);">N.A</span>
-            {% else %}
-                {{ pnl|floatformat:0 }}
-            {% endif %}
+            {{ pnl|floatformat:0 }}
         </div>
     </div>
     <div class="card">
-        <div class="card-title">My Share</div>
+        <div class="card-title">Final Share</div>
         <div class="card-value">
-            {% if pnl == 0 %}
-                <span style="color: var(--muted);">N.A</span>
+            {% if share == 0 %}
+                <span style="color: var(--muted);">N.A (Zero Share)</span>
             {% else %}
                 {{ share|floatformat:0 }}
             {% endif %}
         </div>
     </div>
     <div class="card">
-        <div class="card-title">My Percentage</div>
-        <div class="card-value">{{ account.my_percentage }}%</div>
+        <div class="card-title">Remaining Settlement</div>
+        <div class="card-value">
+            {% if share == 0 %}
+                <span style="color: var(--muted);">N.A</span>
+            {% else %}
+                <strong style="color: var(--accent);">{{ remaining|floatformat:0 }}</strong>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">Share Percentage</div>
+        <div class="card-value">
+            {% if pnl < 0 %}
+                {{ account.loss_share_percentage|default:account.my_percentage }}% (Loss)
+            {% elif pnl > 0 %}
+                {{ account.profit_share_percentage|default:account.my_percentage }}% (Profit)
+            {% else %}
+                {{ account.my_percentage }}%
+            {% endif %}
+        </div>
     </div>
     <div class="card">
         <div class="card-title">Settlement Status</div>
         <div class="card-value">
             {% if pnl == 0 %}
-                <span style="color: #10b981; font-weight: 600;">✓ Fully Settled</span>
+                <span style="color: #10b981; font-weight: 600;">✓ Trading Flat (PnL = 0)</span>
+            {% elif share == 0 %}
+                <span style="color: #6b7280; font-weight: 600;">N.A (Zero Share)</span>
+            {% elif remaining == 0 %}
+                <span style="color: #10b981; font-weight: 600;">✓ Settlement Complete</span>
             {% else %}
                 <span style="color: #f59e0b; font-weight: 600;">⚠ Action Required</span>
             {% endif %}
@@ -110,6 +128,36 @@
     </div>
     <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted);">
         <strong>Note:</strong> These percentages are used ONLY for reports, not system logic.
+    </div>
+</div>
+{% endif %}
+
+<!-- Settlements (MASKED SHARE SETTLEMENT SYSTEM) -->
+{% if settlements %}
+<div style="background: var(--bg-content); border-radius: 8px; padding: 0; border: 1px solid var(--border); overflow: hidden; margin-bottom: 24px;">
+    <div class="table-header">
+        <span>Settlement History</span>
+        <span class="pill">Total Settled: {{ total_settled|floatformat:0 }} / {{ final_share|floatformat:0 }}</span>
+    </div>
+    <div class="table-wrapper" style="border: none; box-shadow: none;">
+        <table>
+            <thead>
+            <tr>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>Notes</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for settlement in settlements %}
+            <tr>
+                <td>{{ settlement.date|date:"M d, Y H:i" }}</td>
+                <td><strong>{{ settlement.amount|floatformat:0 }}</strong></td>
+                <td style="color: var(--muted); font-size: 13px;">{{ settlement.notes|truncatewords:10|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
 {% endif %}

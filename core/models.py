@@ -64,11 +64,44 @@ class ClientExchangeAccount(TimeStampedModel):
     funding = models.BigIntegerField(default=0, validators=[MinValueValidator(0)])
     exchange_balance = models.BigIntegerField(default=0, validators=[MinValueValidator(0)])
     
-    # Partner percentage (INT as per spec)
+    # Partner percentage (INT as per spec) - kept for backward compatibility
     my_percentage = models.IntegerField(
         default=0,
         validators=[MinValueValidator(0), MaxValueValidator(100)],
-        help_text="Your total percentage share (0-100)"
+        help_text="Your total percentage share (0-100) - DEPRECATED: Use loss_share_percentage and profit_share_percentage"
+    )
+    
+    # MASKED SHARE SETTLEMENT SYSTEM: Separate loss and profit percentages
+    loss_share_percentage = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Admin share percentage for losses (0-100). IMMUTABLE once data exists."
+    )
+    profit_share_percentage = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Admin share percentage for profits (0-100). Can change anytime, affects only future profits."
+    )
+    
+    # CRITICAL FIX: Lock share at first compute per PnL cycle
+    # These fields store the locked values when a PnL cycle starts
+    locked_initial_final_share = models.BigIntegerField(
+        default=0,
+        null=True,
+        blank=True,
+        help_text="Initial FinalShare locked at start of PnL cycle. Used for remaining calculation."
+    )
+    locked_share_percentage = models.IntegerField(
+        default=0,
+        null=True,
+        blank=True,
+        help_text="Share percentage locked at start of PnL cycle. Prevents historical rewrite."
+    )
+    locked_initial_pnl = models.BigIntegerField(
+        default=0,
+        null=True,
+        blank=True,
+        help_text="Initial PnL when share was locked. Used to detect PnL cycle changes."
     )
     
     class Meta:
@@ -89,16 +122,197 @@ class ClientExchangeAccount(TimeStampedModel):
     
     def compute_my_share(self):
         """
-        PARTNER SHARE FORMULA
-        My_Share = ABS(Client_PnL) × my_percentage / 100
+        MASKED SHARE SETTLEMENT SYSTEM - PARTNER SHARE FORMULA
         
-        Returns: BIGINT (always positive, integer division)
+        Uses floor() rounding (round down) for final share.
+        Separate percentages for loss and profit.
+        
+        Returns: BIGINT (always positive, floor rounded)
         """
-        client_pnl = abs(self.compute_client_pnl())
-        return (client_pnl * self.my_percentage) // 100
+        import math
+        client_pnl = self.compute_client_pnl()
+        
+        if client_pnl == 0:
+            return 0
+        
+        # Determine which percentage to use
+        if client_pnl < 0:
+            # LOSS: Use loss_share_percentage (or fallback to my_percentage)
+            share_pct = self.loss_share_percentage if self.loss_share_percentage > 0 else self.my_percentage
+        else:
+            # PROFIT: Use profit_share_percentage (or fallback to my_percentage)
+            share_pct = self.profit_share_percentage if self.profit_share_percentage > 0 else self.my_percentage
+        
+        # Exact Share (NO rounding)
+        exact_share = abs(client_pnl) * (share_pct / 100.0)
+        
+        # Final Share (ONLY rounding step) - FLOOR (round down)
+        final_share = math.floor(exact_share)
+        
+        return int(final_share)
+    
+    def compute_exact_share(self):
+        """
+        MASKED SHARE SETTLEMENT SYSTEM - Exact Share (before rounding)
+        
+        Returns: float (exact share before floor rounding)
+        """
+        client_pnl = self.compute_client_pnl()
+        
+        if client_pnl == 0:
+            return 0.0
+        
+        # Determine which percentage to use
+        if client_pnl < 0:
+            share_pct = self.loss_share_percentage if self.loss_share_percentage > 0 else self.my_percentage
+        else:
+            share_pct = self.profit_share_percentage if self.profit_share_percentage > 0 else self.my_percentage
+        
+        # Exact Share (NO rounding)
+        exact_share = abs(client_pnl) * (share_pct / 100.0)
+        
+        return exact_share
+    
+    def lock_initial_share_if_needed(self):
+        """
+        CRITICAL FIX: Lock InitialFinalShare at first compute per PnL cycle.
+        
+        This ensures share doesn't shrink after payments.
+        Share is decided by trading outcome, not by settlement.
+        """
+        client_pnl = self.compute_client_pnl()
+        
+        # If no locked share exists, or PnL cycle changed (sign flip or zero crossing), lock new share
+        if self.locked_initial_final_share is None or self.locked_initial_pnl is None:
+            # First time - lock the share
+            final_share = self.compute_my_share()
+            if final_share > 0:
+                # Determine which percentage to use
+                if client_pnl < 0:
+                    share_pct = self.loss_share_percentage if self.loss_share_percentage > 0 else self.my_percentage
+                else:
+                    share_pct = self.profit_share_percentage if self.profit_share_percentage > 0 else self.my_percentage
+                
+                self.locked_initial_final_share = final_share
+                self.locked_share_percentage = share_pct
+                self.locked_initial_pnl = client_pnl
+                self.save(update_fields=['locked_initial_final_share', 'locked_share_percentage', 'locked_initial_pnl'])
+        elif client_pnl != 0 and self.locked_initial_pnl != 0:
+            # Check if PnL cycle changed (sign flip)
+            if (client_pnl < 0) != (self.locked_initial_pnl < 0):
+                # PnL cycle changed - lock new share
+                final_share = self.compute_my_share()
+                if final_share > 0:
+                    if client_pnl < 0:
+                        share_pct = self.loss_share_percentage if self.loss_share_percentage > 0 else self.my_percentage
+                    else:
+                        share_pct = self.profit_share_percentage if self.profit_share_percentage > 0 else self.my_percentage
+                    
+                    self.locked_initial_final_share = final_share
+                    self.locked_share_percentage = share_pct
+                    self.locked_initial_pnl = client_pnl
+                    self.save(update_fields=['locked_initial_final_share', 'locked_share_percentage', 'locked_initial_pnl'])
+        elif client_pnl == 0:
+            # PnL is zero - reset locks
+            self.locked_initial_final_share = None
+            self.locked_share_percentage = None
+            self.locked_initial_pnl = None
+            self.save(update_fields=['locked_initial_final_share', 'locked_share_percentage', 'locked_initial_pnl'])
+    
+    def get_remaining_settlement_amount(self):
+        """
+        CRITICAL FIX: Calculate remaining using LOCKED InitialFinalShare.
+        
+        Formula: Remaining = LockedInitialFinalShare - Sum(SharePayments)
+        Overpaid = max(0, Sum(SharePayments) - LockedInitialFinalShare)
+        
+        Share is locked at first compute and NEVER shrinks after payments.
+        This ensures share is decided by trading outcome, not by settlement.
+        
+        Returns: dict with 'remaining', 'overpaid', 'initial_final_share', and 'total_settled'
+        """
+        # Lock share if needed
+        self.lock_initial_share_if_needed()
+        
+        # CRITICAL: Always use locked share - NEVER recalculate from current PnL
+        # If locked share doesn't exist, it means share is 0 (no settlement needed)
+        if self.locked_initial_final_share is not None:
+            initial_final_share = self.locked_initial_final_share
+        else:
+            # No locked share means current share is 0 (PnL too small or zero)
+            # Return zeros - no settlement possible
+            return {
+                'remaining': 0,
+                'overpaid': 0,
+                'initial_final_share': 0,
+                'total_settled': 0
+            }
+        
+        total_settled = self.settlements.aggregate(
+            total=models.Sum('amount')
+        )['total'] or 0
+        
+        # CORRECT FORMULA: Remaining = LockedInitialFinalShare - TotalSettled
+        # Share NEVER shrinks - it's locked at initial compute
+        remaining = max(0, initial_final_share - total_settled)
+        overpaid = max(0, total_settled - initial_final_share)
+        
+        return {
+            'remaining': remaining,
+            'overpaid': overpaid,
+            'initial_final_share': initial_final_share,
+            'total_settled': total_settled
+        }
+    
+    def get_remaining_settlement_amount_legacy(self):
+        """
+        Legacy method for backward compatibility.
+        Returns just the remaining amount (for existing code).
+        """
+        result = self.get_remaining_settlement_amount()
+        return result['remaining']
+    
+    def clean(self):
+        """
+        MASKED SHARE SETTLEMENT SYSTEM - Validation
+        
+        Prevents loss share % changes after data exists.
+        """
+        from django.core.exceptions import ValidationError
+        
+        # If this is an existing record (has pk), check if loss share % is being changed
+        if self.pk:
+            try:
+                old_instance = ClientExchangeAccount.objects.get(pk=self.pk)
+                # Check if loss share % is being changed
+                if old_instance.loss_share_percentage != self.loss_share_percentage:
+                    # Check if there are any transactions or settlements
+                    has_transactions = self.transactions.exists()
+                    has_settlements = self.settlements.exists()
+                    
+                    if has_transactions or has_settlements:
+                        raise ValidationError(
+                            "Loss share percentage cannot be changed after data exists. "
+                            "Current value: {}, Attempted value: {}".format(
+                                old_instance.loss_share_percentage,
+                                self.loss_share_percentage
+                            )
+                        )
+            except ClientExchangeAccount.DoesNotExist:
+                pass  # New instance, no validation needed
     
     def is_settled(self):
-        """Check if client is fully settled (PnL = 0)"""
+        """
+        Check if client PnL is zero (trading flat).
+        
+        Note: This does NOT mean "settlement complete".
+        PnL = 0 can occur from:
+        - Trading result (no settlements)
+        - Settlement activity
+        - Over-settlement + clamp
+        
+        Use get_remaining_settlement_amount() == 0 to check if settlement is complete.
+        """
         return self.compute_client_pnl() == 0
 
 
@@ -163,6 +377,32 @@ class ClientExchangeReportConfig(TimeStampedModel):
         """
         client_pnl = abs(self.client_exchange.compute_client_pnl())
         return (client_pnl * self.my_own_percentage) // 100
+
+
+class Settlement(TimeStampedModel):
+    """
+    MASKED SHARE SETTLEMENT SYSTEM - Settlement Tracking
+    
+    Tracks individual settlement payments to prevent over-settlement.
+    Each settlement records a partial or full payment of the admin's share.
+    """
+    client_exchange = models.ForeignKey(
+        ClientExchangeAccount,
+        on_delete=models.CASCADE,
+        related_name='settlements'
+    )
+    amount = models.BigIntegerField(
+        validators=[MinValueValidator(1)],
+        help_text="Settlement amount (integer, > 0)"
+    )
+    date = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True, null=True, help_text="Optional notes about this settlement")
+    
+    class Meta:
+        ordering = ['-date', '-id']
+    
+    def __str__(self):
+        return f"Settlement: {self.client_exchange} - {self.amount} - {self.date.strftime('%Y-%m-%d')}"
 
 
 class Transaction(TimeStampedModel):

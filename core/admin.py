@@ -4,7 +4,7 @@ Django admin configuration
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django.forms import ModelForm
-from .models import Client, Exchange, ClientExchangeAccount, ClientExchangeReportConfig, Transaction
+from .models import Client, Exchange, ClientExchangeAccount, ClientExchangeReportConfig, Transaction, Settlement
 
 
 class ClientExchangeReportConfigInline(admin.StackedInline):
@@ -50,23 +50,23 @@ class ExchangeAdmin(admin.ModelAdmin):
 
 @admin.register(ClientExchangeAccount)
 class ClientExchangeAccountAdmin(admin.ModelAdmin):
-    list_display = ['client', 'exchange', 'funding', 'exchange_balance', 'my_percentage', 'computed_pnl', 'computed_share']
+    list_display = ['client', 'exchange', 'funding', 'exchange_balance', 'loss_share_percentage', 'profit_share_percentage', 'computed_pnl', 'computed_share']
     list_filter = ['exchange', 'created_at']
     search_fields = ['client__name', 'exchange__name']
-    readonly_fields = ['computed_pnl', 'computed_share', 'settlement_status_derived', 'created_at', 'updated_at']
+    readonly_fields = ['computed_pnl', 'computed_share', 'settlement_status_derived', 'remaining_settlement', 'created_at', 'updated_at']
     inlines = [ClientExchangeReportConfigInline]
     
     fieldsets = (
         ('Account Information', {
-            'fields': ('client', 'exchange', 'my_percentage')
+            'fields': ('client', 'exchange', 'my_percentage', 'loss_share_percentage', 'profit_share_percentage')
         }),
         ('Money Values (BIGINT)', {
             'fields': ('funding', 'exchange_balance'),
             'description': 'ONLY real money values stored here. All other values are DERIVED.'
         }),
         ('Computed Values (Read-Only)', {
-            'fields': ('computed_pnl', 'computed_share', 'settlement_status_derived'),
-            'description': 'These values are computed from funding and exchange_balance, never stored. Settlement status is DERIVED: if Client_PnL == 0 → Fully settled, else → Action required.'
+            'fields': ('computed_pnl', 'computed_share', 'remaining_settlement', 'settlement_status_derived'),
+            'description': 'These values are computed from funding and exchange_balance, never stored. Settlement status: PnL = 0 → Trading flat, Remaining = 0 → Settlement complete.'
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
@@ -93,21 +93,40 @@ class ClientExchangeAccountAdmin(admin.ModelAdmin):
         return f'{share:,}'
     computed_share.short_description = "My Share (Computed)"
     
+    def remaining_settlement(self, obj):
+        """Display remaining settlement amount"""
+        remaining = obj.get_remaining_settlement_amount()
+        final_share = obj.compute_my_share()
+        if final_share == 0:
+            return "N.A (Zero Share)"
+        return f'{remaining:,} / {final_share:,}'
+    remaining_settlement.short_description = "Remaining Settlement"
+    
     def settlement_status_derived(self, obj):
         """
         DERIVED settlement status (NOT stored)
         
-        Rule: if Client_PnL == 0 → Fully settled
+        Rule: if Client_PnL == 0 → Trading flat (PnL zero from trading/settlement)
+        Rule: if Remaining = 0 → Settlement complete (all share paid)
               else → Action required
         """
         pnl = obj.compute_client_pnl()
         if pnl == 0:
-            return '<span style="color: green; font-weight: bold;">✓ Fully Settled</span>'
+            return '<span style="color: green; font-weight: bold;">✓ Trading Flat (PnL = 0)</span>'
         else:
             return '<span style="color: orange; font-weight: bold;">⚠ Action Required</span>'
     settlement_status_derived.short_description = "Settlement Status (Derived)"
     settlement_status_derived.help_text = "Derived from Client_PnL. NOT stored in database."
     settlement_status_derived.allow_tags = True
+
+
+@admin.register(Settlement)
+class SettlementAdmin(admin.ModelAdmin):
+    list_display = ['date', 'client_exchange', 'amount', 'notes']
+    list_filter = ['date']
+    search_fields = ['client_exchange__client__name', 'client_exchange__exchange__name', 'notes']
+    readonly_fields = ['created_at', 'updated_at']
+    date_hierarchy = 'date'
 
 
 @admin.register(ClientExchangeReportConfig)
