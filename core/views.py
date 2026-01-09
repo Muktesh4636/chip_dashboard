@@ -1593,22 +1593,21 @@ def report_overview(request):
     
     # Add specific client filter if specified
     if client_id:
-
+        user_filter["client_exchange__client_id"] = client_id
     
-        pass
+    # Initialize base queryset with user filter
+    base_qs = Transaction.objects.filter(**user_filter)
+    
+    # Apply date filter if provided
     if date_filter:
-
-        pass
-    else:
-
-        base_qs = Transaction.objects.filter(**user_filter)
+        base_qs = base_qs.filter(**date_filter)
 
     
     # Filter to only show transactions after payments are recorded (settled)
     # Get all client_exchanges that have at least one settlement
     settled_client_exchanges = Transaction.objects.filter(
         **user_filter,
-        transaction_type=Transaction.TYPE_SETTLEMENT
+        type='RECORD_PAYMENT'
     ).values_list('client_exchange_id', flat=True).distinct()
     
     # For each settled client_exchange, get the latest settlement date
@@ -1625,10 +1624,10 @@ def report_overview(request):
     
             pass
     # Filter base_qs to only include:
-    # 1. SETTLEMENT and FUNDING transactions (always include)
+    # 1. RECORD_PAYMENT and FUNDING transactions (always include)
     # 2. PROFIT/LOSS transactions only if they're for settled client_exchanges and before/on settlement date
     from django.db.models import Q, F
-    settled_filter = Q(transaction_type__in=[Transaction.TYPE_SETTLEMENT, Transaction.TYPE_FUNDING])
+    settled_filter = Q(type__in=['RECORD_PAYMENT', 'FUNDING'])
     
     # Add profit/loss transactions that are settled
     # Note: This section is for old transaction types that don't exist in PIN-TO-PIN
@@ -1659,28 +1658,17 @@ def report_overview(request):
     total_turnover = base_qs.aggregate(total=Sum("amount"))["total"] or 0
     
     # 📘 YOUR TOTAL PROFIT Calculation
-    # For company clients: your_share_amount = 1% of profit (in profit transactions)
-    # For my clients: your_share_amount = full share of profit (in profit transactions)
-    # This represents what you OWE clients (expense)
-    your_total_profit_from_profits = (
-        base_qs.filter(transaction_type=Transaction.TYPE_PROFIT).aggregate(total=Sum("your_share_amount"))[
-            "total"
-
-        ]
-        or 0
-    )
+    # NOTE: TYPE_PROFIT and TYPE_LOSS don't exist in current Transaction model
+    # These transaction types are not used in the PIN-TO-PIN system
+    # Profit/Loss is calculated from ClientExchangeAccount, not from Transaction records
+    from decimal import Decimal
+    your_total_profit_from_profits = Decimal(0)
     
     # 📘 YOUR TOTAL INCOME from Losses
-    # For company clients: your_share_amount = 1% of loss (in loss transactions)
-    # For my clients: your_share_amount = full share of loss (in loss transactions)
-    # This represents what clients OWE you (income)
-    your_total_income_from_losses = (
-        base_qs.filter(transaction_type=Transaction.TYPE_LOSS).aggregate(total=Sum("your_share_amount"))[
-            "total"
-
-        ]
-        or 0
-    )
+    # NOTE: TYPE_PROFIT and TYPE_LOSS don't exist in current Transaction model
+    # These transaction types are not used in the PIN-TO-PIN system
+    # Profit/Loss is calculated from ClientExchangeAccount, not from Transaction records
+    your_total_income_from_losses = Decimal(0)
     
     # 📘 YOUR NET PROFIT = Income from Losses - Expense from Profits
     # This shows your actual earnings (positive = you earned, negative = you owe)
@@ -1710,16 +1698,16 @@ def report_overview(request):
     daily_transactions = base_qs.filter(
         date__gte=start_date,
         date__lte=end_date
-    ).values("date", "transaction_type").annotate(
-        profit_sum=Sum("your_share_amount", filter=Q(transaction_type=Transaction.TYPE_PROFIT)),
-        loss_sum=Sum("your_share_amount", filter=Q(transaction_type=Transaction.TYPE_LOSS)),
+    ).values("date").annotate(
         turnover_sum=Sum("amount")
     )
     
     for item in daily_transactions:
-
-        daily_data[tx_date]["profit"] += float(item["profit_sum"] or 0)
-        daily_data[tx_date]["loss"] += float(item["loss_sum"] or 0)
+        tx_date = item['date']
+        # NOTE: TYPE_PROFIT and TYPE_LOSS don't exist - profit/loss calculated from RECORD_PAYMENT
+        # Daily profit/loss is calculated separately from RECORD_PAYMENT transactions
+        daily_data[tx_date]["profit"] += 0  # Set to 0 - profit/loss not tracked in Transaction model
+        daily_data[tx_date]["loss"] += 0  # Set to 0 - profit/loss not tracked in Transaction model
         daily_data[tx_date]["turnover"] += float(item["turnover_sum"] or 0)
     
     # Create sorted date list and data arrays
@@ -1742,7 +1730,7 @@ def report_overview(request):
         days_count += 1
     
     # Transaction type breakdown (filtered by time travel if applicable)
-    type_breakdown = base_qs.values("transaction_type").annotate(
+    type_breakdown = base_qs.values("type").annotate(
         count=Count("id"),
         total_amount=Sum("amount")
     )
@@ -1751,24 +1739,22 @@ def report_overview(request):
     type_amounts = []
     type_colors = []
     
+    # Map transaction type strings to display labels
     type_map = {
-        Transaction.TYPE_PROFIT: ("Profit", "#6b7280"),
-        Transaction.TYPE_LOSS: ("Loss", "#9ca3af"),
-        Transaction.TYPE_FUNDING: ("Funding", "#4b5563"),
-        Transaction.TYPE_SETTLEMENT: ("Settlement", "#6b7280"),
+        'FUNDING': ("Funding", "#4b5563"),
+        'TRADE': ("Trade", "#6b7280"),
+        'FEE': ("Fee", "#9ca3af"),
+        'ADJUSTMENT': ("Adjustment", "#6b7280"),
+        'RECORD_PAYMENT': ("Record Payment", "#10b981"),
     }
     
     for item in type_breakdown:
-
+        tx_type = item["type"]
         if tx_type in type_map:
-
-
+            label, color = type_map[tx_type]
             type_labels.append(label)
-
             type_counts.append(item["count"])
-
             type_amounts.append(float(item["total_amount"] or 0))
-
             type_colors.append(color)
 
     
@@ -1809,15 +1795,9 @@ def report_overview(request):
 
         )
         
-        month_profit_val = month_transactions.filter(
-            transaction_type=Transaction.TYPE_PROFIT
-
-        ).aggregate(total=Sum("your_share_amount"))["total"] or 0
-        
-        month_loss_val = month_transactions.filter(
-            transaction_type=Transaction.TYPE_LOSS
-
-        ).aggregate(total=Sum("your_share_amount"))["total"] or 0
+        # NOTE: TYPE_PROFIT and TYPE_LOSS don't exist - set to 0
+        month_profit_val = 0
+        month_loss_val = 0
         
         month_turnover_val = month_transactions.aggregate(total=Sum("amount"))["total"] or 0
         
@@ -1826,17 +1806,11 @@ def report_overview(request):
         monthly_turnover.insert(0, float(month_turnover_val))
     
     # Top clients by profit (last 30 days or filtered)
-    top_clients = base_qs.filter(
-        date__gte=start_date,
-        transaction_type=Transaction.TYPE_PROFIT
-    ).values(
-        "client_exchange__client__name"
-    ).annotate(
-        total_profit=Sum("your_share_amount")
-    ).order_by("-total_profit")[:10]
-    
-    client_labels = [item["client_exchange__client__name"] for item in top_clients]
-    client_profits = [float(item["total_profit"] or 0) for item in top_clients]
+    # NOTE: your_share_amount field doesn't exist in Transaction model
+    # Return empty lists since we can't calculate profit from Transaction records
+    top_clients = []
+    client_labels = []
+    client_profits = []
 
     # Weekly data (last 4 weeks)
     weekly_labels = []
@@ -1844,33 +1818,30 @@ def report_overview(request):
     weekly_loss = []
     weekly_turnover = []
     
+    # Initialize week_end to end_date (or today if end_date not set)
+    week_end = end_date
+    
     for i in range(4):
-
         week_start = week_end - timedelta(days=6)
         weekly_labels.insert(0, f"Week {4-i} ({week_start.strftime('%b %d')} - {week_end.strftime('%b %d')})")
         
         week_transactions = base_qs.filter(
             date__gte=week_start,
-
             date__lte=week_end
-
         )
         
-        week_profit_val = week_transactions.filter(
-            transaction_type=Transaction.TYPE_PROFIT
-
-        ).aggregate(total=Sum("your_share_amount"))["total"] or 0
-        
-        week_loss_val = week_transactions.filter(
-            transaction_type=Transaction.TYPE_LOSS
-
-        ).aggregate(total=Sum("your_share_amount"))["total"] or 0
+        # NOTE: your_share_amount field doesn't exist in Transaction model
+        week_profit_val = 0
+        week_loss_val = 0
         
         week_turnover_val = week_transactions.aggregate(total=Sum("amount"))["total"] or 0
         
         weekly_profit.insert(0, float(week_profit_val))
         weekly_loss.insert(0, float(week_loss_val))
         weekly_turnover.insert(0, float(week_turnover_val))
+        
+        # Move week_end backwards for next iteration
+        week_end = week_start - timedelta(days=1)
 
     # Time travel data
     time_travel_transactions = base_qs.select_related("client_exchange", "client_exchange__client", "client_exchange__exchange").order_by("-date", "-created_at")[:50]
