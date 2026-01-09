@@ -51,12 +51,12 @@ class Client(TimeStampedModel):
         """
         from django.core.exceptions import ValidationError
         
-        # Strip code if provided
+        # CRITICAL: Normalize code - convert empty string to None
+        # Empty strings ('') conflict with UNIQUE constraint, but NULL values don't
         if self.code:
             self.code = self.code.strip()
-            # Convert empty string to None
-            if not self.code:
-                self.code = None
+        # Convert empty string to None (handles both '' and whitespace-only strings)
+        self.code = self.code if self.code else None
         
         # If code is provided (non-NULL), check for duplicates
         if self.code is not None:
@@ -75,11 +75,12 @@ class Client(TimeStampedModel):
     
     def save(self, *args, **kwargs):
         """Override save to ensure clean() is called and code is properly handled."""
-        # Clean code: strip whitespace and convert empty to None
+        # CRITICAL: Normalize code - convert empty string to None
+        # Empty strings ('') conflict with UNIQUE constraint, but NULL values don't
         if self.code:
             self.code = self.code.strip()
-            if not self.code:
-                self.code = None
+        # Convert empty string to None (handles both '' and whitespace-only strings)
+        self.code = self.code if self.code else None
         
         # Run validation
         self.full_clean()

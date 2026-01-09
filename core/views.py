@@ -661,19 +661,17 @@ def client_create(request):
         referred_by = request.POST.get("referred_by", "").strip()
         is_company_client = request.POST.get("is_company_client") == "on"
         
+        # CRITICAL: Convert empty string to None (required for UNIQUE constraint)
+        # Empty strings ('') conflict with UNIQUE, but NULL values don't
+        code = code if code else None
+        
         if not name:
             messages.error(request, "Client name is required.")
             return render(request, "core/clients/create.html", {
-                'code': code,
+                'code': code or '',
                 'referred_by': referred_by,
                 'is_company_client': is_company_client,
             })
-        
-        # Process code: strip whitespace and convert empty string to None
-        if code:
-            code = code.strip()
-            if not code:
-                code = None
         
         # Check for duplicate code BEFORE saving (user-friendly error)
         if code is not None:
@@ -770,18 +768,16 @@ def my_client_create(request):
         code = request.POST.get("code", "").strip()
         referred_by = request.POST.get("referred_by", "").strip()
         
+        # CRITICAL: Convert empty string to None (required for UNIQUE constraint)
+        # Empty strings ('') conflict with UNIQUE, but NULL values don't
+        code = code if code else None
+        
         if not name:
             messages.error(request, "Client name is required.")
             return render(request, "core/clients/create_my.html", {
-                'code': code,
+                'code': code or '',
                 'referred_by': referred_by,
             })
-        
-        # Process code: strip whitespace and convert empty string to None
-        if code:
-            code = code.strip()
-            if not code:
-                code = None
         
         # Check for duplicate code BEFORE saving (user-friendly error)
         if code is not None:
