@@ -1302,7 +1302,7 @@ def pending_summary(request):
             else:
                 display_remaining = -remaining_amount  # You owe client (negative)
             
-            # FINANCIAL INTERPRETATION: Client PnL < 0 (LOSS) → Client owes you → Remaining is POSITIVE
+            # FINANCIAL INTERPRETATION: Client PnL < 0 (LOSS) → Client owes you → DisplayRemaining is POSITIVE
             clients_owe_list.append({
                 "client": client_exchange.client,
                 "exchange": client_exchange.exchange,
@@ -1310,7 +1310,7 @@ def pending_summary(request):
                 "client_pnl": client_pnl,  # Masked in template
                 "amount_owed": total_loss,  # Amount owed = total loss (masked in template)
                 "my_share_amount": final_share,  # Final share (floor rounded)
-                "remaining_amount": display_remaining,  # Remaining to settle (POSITIVE for loss, NEGATIVE for profit)
+                "remaining_amount": display_remaining,  # DisplayRemaining: POSITIVE for loss (client owes you), NEGATIVE for profit (you owe client)
                 "share_percentage": share_pct,
                 "show_na": show_na,  # Flag for N.A display
                 })
@@ -1350,7 +1350,7 @@ def pending_summary(request):
             else:
                 display_remaining = remaining_amount  # Client owes you (positive)
             
-            # FINANCIAL INTERPRETATION: Client PnL > 0 (PROFIT) → You owe client → Remaining is NEGATIVE
+            # FINANCIAL INTERPRETATION: Client PnL > 0 (PROFIT) → You owe client → DisplayRemaining is NEGATIVE
             you_owe_list.append({
                 "client": client_exchange.client,
                 "exchange": client_exchange.exchange,
@@ -1358,7 +1358,7 @@ def pending_summary(request):
                 "client_pnl": client_pnl,  # Masked in template
                 "amount_owed": unpaid_profit,  # Amount you owe = profit (masked in template)
                 "my_share_amount": final_share,  # Final share (floor rounded)
-                "remaining_amount": display_remaining,  # Remaining to settle (NEGATIVE for profit, POSITIVE for loss)
+                "remaining_amount": display_remaining,  # DisplayRemaining: NEGATIVE for profit (you owe client), POSITIVE for loss (client owes you)
                 "share_percentage": share_pct,
                 "show_na": show_na,  # Flag for N.A display
             })
@@ -1554,7 +1554,7 @@ def export_pending_csv(request):
             else:
                 display_remaining = remaining_amount  # Client owes you (positive)
             
-            # FINANCIAL INTERPRETATION: Client PnL > 0 (PROFIT) → You owe client → Remaining is NEGATIVE
+            # FINANCIAL INTERPRETATION: Client PnL > 0 (PROFIT) → You owe client → DisplayRemaining is NEGATIVE
             you_owe_list.append({
                 "client": client_exchange.client,
                 "exchange": client_exchange.exchange,
@@ -1562,7 +1562,7 @@ def export_pending_csv(request):
                 "client_pnl": client_pnl,
                 "amount_owed": unpaid_profit,
                 "my_share_amount": final_share,
-                "remaining_amount": display_remaining,  # Signed based on PnL direction
+                "remaining_amount": display_remaining,  # DisplayRemaining: NEGATIVE for profit (you owe client), POSITIVE for loss (client owes you)
                 "share_percentage": share_pct,
                 "show_na": show_na,  # Flag for N.A display
             })
@@ -3947,15 +3947,16 @@ def record_payment(request, account_id):
     
     # GET request - show form
     # CORRECTNESS LOGIC: Display remaining with sign based on PnL direction
-    # Step 1: Core Remaining (ALWAYS POSITIVE)
+    # Step 1: Core Remaining (ALWAYS POSITIVE) - Raw value from get_remaining_settlement_amount()
     core_remaining = remaining_amount
-    # Step 2: Display Sign (BASED ON PnL)
-    # IF Client_PnL > 0: DisplayRemaining = -CoreRemaining (you owe client)
-    # ELSE: DisplayRemaining = +CoreRemaining (client owes you)
+    # Step 2: Display Sign (BASED ON Client_PnL direction)
+    # Formula: DisplayRemaining = sign(Client_PnL) × RemainingRaw
+    # IF Client_PnL < 0 (LOSS): DisplayRemaining = +RemainingRaw (client owes you)
+    # IF Client_PnL > 0 (PROFIT): DisplayRemaining = -RemainingRaw (you owe client)
     if client_pnl > 0:
-        display_remaining = -core_remaining
+        display_remaining = -core_remaining  # You owe client (negative)
     else:
-        display_remaining = core_remaining
+        display_remaining = core_remaining  # Client owes you (positive)
     
     return render(request, "core/exchanges/record_payment.html", {
         'account': account,

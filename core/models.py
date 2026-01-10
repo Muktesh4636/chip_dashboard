@@ -428,13 +428,20 @@ class ClientExchangeAccount(TimeStampedModel):
         """
         CRITICAL FIX: Calculate remaining using LOCKED InitialFinalShare.
         
-        Formula: Remaining = LockedInitialFinalShare - Sum(SharePayments)
+        Formula: RemainingRaw = LockedInitialFinalShare - Sum(SharePayments)
         Overpaid = max(0, Sum(SharePayments) - LockedInitialFinalShare)
         
         Share is locked at first compute and NEVER shrinks after payments.
         This ensures share is decided by trading outcome, not by settlement.
         
-        Returns: dict with 'remaining', 'overpaid', 'initial_final_share', and 'total_settled'
+        IMPORTANT: This method returns RemainingRaw (always ≥ 0).
+        The SIGN must be applied at DISPLAY TIME based on Client_PnL direction:
+        
+        Display Logic (MUST be applied by caller):
+        - IF Client_PnL < 0 (LOSS): DisplayRemaining = +RemainingRaw (client owes you)
+        - IF Client_PnL > 0 (PROFIT): DisplayRemaining = -RemainingRaw (you owe client)
+        
+        Returns: dict with 'remaining' (raw value ≥ 0), 'overpaid', 'initial_final_share', and 'total_settled'
         """
         # Lock share if needed
         self.lock_initial_share_if_needed()
