@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 import json
+import time
 
 from django.contrib.auth import logout, login, authenticate
 from django.contrib.auth.decorators import login_required
@@ -11,6 +12,11 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
+from django.core.cache import cache
+from django.conf import settings
+import logging
+
+logger = logging.getLogger('core.security')
 
 from .models import (
     Client,
@@ -173,26 +179,83 @@ def calculate_admin_profit_loss(client_profit_loss, settings, admin_profit_share
 
 
 def login_view(request):
-    """Login view."""
+    """
+    Secure login view with rate limiting and account lockout protection.
+    """
     if request.user.is_authenticated:
         return redirect("dashboard")
     
+    # Get client IP for rate limiting
+    ip_address = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or request.META.get('REMOTE_ADDR', '127.0.0.1')
+    login_rate_limit_key = f'login_rate_limit:{ip_address}'
+    
     if request.method == "POST":
-        username = request.POST.get("username")
-        password = request.POST.get("password")
-        user = authenticate(request, username=username, password=password)
-        if user is not None:
-            login(request, user)
-            return redirect("dashboard")
-
-        else:
-
+        # Check rate limit for login attempts
+        login_attempts = cache.get(login_rate_limit_key, 0)
+        max_login_attempts = getattr(settings, 'LOGIN_RATE_LIMIT_REQUESTS', 5)
+        login_window = getattr(settings, 'LOGIN_RATE_LIMIT_WINDOW', 300)  # 5 minutes
+        
+        if login_attempts >= max_login_attempts:
+            logger.warning(f'Login rate limit exceeded for IP: {ip_address}')
             return render(request, "core/auth/login.html", {
-
+                "error": "Too many login attempts. Please try again in 5 minutes."
+            })
+        
+        username = request.POST.get("username", "").strip()
+        password = request.POST.get("password", "")
+        
+        # Validate input
+        if not username or not password:
+            cache.set(login_rate_limit_key, login_attempts + 1, login_window)
+            return render(request, "core/auth/login.html", {
+                "error": "Username and password are required."
+            })
+        
+        # Check for account lockout (per username)
+        username_lockout_key = f'login_lockout:{username}'
+        lockout_until = cache.get(username_lockout_key)
+        if lockout_until and time.time() < lockout_until:
+            remaining_time = int((lockout_until - time.time()) / 60) + 1
+            return render(request, "core/auth/login.html", {
+                "error": f"Account temporarily locked. Try again in {remaining_time} minute(s)."
+            })
+        
+        # Authenticate user
+        user = authenticate(request, username=username, password=password)
+        
+        if user is not None:
+            # Successful login - reset rate limit
+            cache.delete(login_rate_limit_key)
+            cache.delete(username_lockout_key)
+            login(request, user)
+            logger.info(f'Successful login for user: {username} from IP: {ip_address}')
+            return redirect("dashboard")
+        else:
+            # Failed login - increment rate limit
+            cache.set(login_rate_limit_key, login_attempts + 1, login_window)
+            
+            # Lock account after max attempts
+            if login_attempts + 1 >= max_login_attempts:
+                lockout_duration = login_window  # Lock for the same duration as rate limit window
+                cache.set(username_lockout_key, time.time() + lockout_duration, lockout_duration)
+                logger.warning(f'Account locked for username: {username} from IP: {ip_address}')
+            
+            # Generic error message (don't reveal if username exists)
+            return render(request, "core/auth/login.html", {
                 "error": "Invalid username or password."
             })
     
     return render(request, "core/auth/login.html")
+
+
+def csrf_failure(request, reason=""):
+    """
+    Custom CSRF failure view with logging.
+    """
+    logger.warning(f'CSRF failure: {reason} from IP: {request.META.get("REMOTE_ADDR")}')
+    return render(request, "core/auth/csrf_error.html", {
+        "error": "Security verification failed. Please try again."
+    }, status=403)
 
 
 def logout_view(request):
@@ -623,16 +686,19 @@ def settle_payment(request):
                 from django.db import transaction as db_transaction
                 from django.contrib import messages
                 with db_transaction.atomic():
-                    # FINAL SIGN LOGIC (THE LAW): Always from YOUR point of view
-                    # - Client paid YOU → +X (POSITIVE) - Your profit
-                    # - YOU paid client → -X (NEGATIVE) - Your loss
-                    # Minus never means "client paid", minus always means "you paid"
-                    if payment_type == 'client_pays':
-                        # Client pays YOU → amount is POSITIVE (your profit)
+                    # CORRECTNESS LOGIC: Sign depends ONLY on Client_PnL at time of payment
+                    # IF Client_PnL > 0 (client in profit): Transaction.amount = -SharePayment (you paid client)
+                    # ELSE IF Client_PnL < 0 (client in loss): Transaction.amount = +SharePayment (client paid you)
+                    client_pnl = client_exchange.compute_client_pnl()
+                    if client_pnl > 0:
+                        # PROFIT CASE: YOU pay client → amount is NEGATIVE (your loss)
+                        transaction_amount = -amount
+                    elif client_pnl < 0:
+                        # LOSS CASE: Client pays YOU → amount is POSITIVE (your profit)
                         transaction_amount = amount
                     else:
-                        # YOU pay client → amount is NEGATIVE (your loss)
-                        transaction_amount = -amount
+                        # PnL = 0 (should not happen, but handle gracefully)
+                        transaction_amount = 0
                     
                     Transaction.objects.create(
     client_exchange=client_exchange,
@@ -1208,8 +1274,8 @@ def pending_summary(request):
             # When PnL = 0, always show N.A
             show_na = True
             
-            # Use default share percentage (loss_share_percentage or my_percentage)
-            share_pct = client_exchange.loss_share_percentage if client_exchange.loss_share_percentage > 0 else client_exchange.my_percentage
+            # Use helper method to get appropriate share percentage
+            share_pct = client_exchange.get_share_percentage(client_pnl)
             
             # Add to list with N.A
             clients_owe_list.append({
@@ -1247,10 +1313,18 @@ def pending_summary(request):
             exchange_balance = Decimal(client_exchange.exchange_balance)
             total_loss = abs(client_pnl)  # Client_PnL is negative, so abs gives loss amount
             
-            # Use loss_share_percentage if set, otherwise fallback to my_percentage
-            share_pct = client_exchange.loss_share_percentage if client_exchange.loss_share_percentage > 0 else client_exchange.my_percentage
+            # Use helper method to get appropriate share percentage
+            share_pct = client_exchange.get_share_percentage(client_pnl)
             
             # Add to list (ALWAYS, even if FinalShare = 0)
+            # CRITICAL FIX (FAIL CASE 2): Remaining display sign based on PnL direction
+            # IF Client_PnL < 0: DisplayRemaining = +CoreRemaining (client owes you)
+            # ELSE: DisplayRemaining = -CoreRemaining (you owe client)
+            if client_pnl < 0:
+                display_remaining = remaining_amount  # Client owes you (positive)
+            else:
+                display_remaining = -remaining_amount  # You owe client (negative)
+            
             # FINANCIAL INTERPRETATION: Client PnL < 0 (LOSS) → Client owes you → Remaining is POSITIVE
             clients_owe_list.append({
                 "client": client_exchange.client,
@@ -1259,7 +1333,7 @@ def pending_summary(request):
                 "client_pnl": client_pnl,  # Masked in template
                 "amount_owed": total_loss,  # Amount owed = total loss (masked in template)
                 "my_share_amount": final_share,  # Final share (floor rounded)
-                "remaining_amount": remaining_amount,  # Remaining to settle (POSITIVE - they owe you)
+                "remaining_amount": display_remaining,  # Remaining to settle (POSITIVE for loss, NEGATIVE for profit)
                 "share_percentage": share_pct,
                 "show_na": show_na,  # Flag for N.A display
                 })
@@ -1287,10 +1361,18 @@ def pending_summary(request):
             exchange_balance = Decimal(client_exchange.exchange_balance)
             unpaid_profit = client_pnl  # Client_PnL is positive (profit)
             
-            # Use profit_share_percentage if set, otherwise fallback to my_percentage
-            share_pct = client_exchange.profit_share_percentage if client_exchange.profit_share_percentage > 0 else client_exchange.my_percentage
+            # Use helper method to get appropriate share percentage
+            share_pct = client_exchange.get_share_percentage(client_pnl)
             
             # Add to list (ALWAYS, even if FinalShare = 0)
+            # CRITICAL FIX (FAIL CASE 2): Remaining display sign based on PnL direction
+            # IF Client_PnL > 0: DisplayRemaining = -CoreRemaining (you owe client)
+            # ELSE: DisplayRemaining = +CoreRemaining (client owes you)
+            if client_pnl > 0:
+                display_remaining = -remaining_amount  # You owe client (negative)
+            else:
+                display_remaining = remaining_amount  # Client owes you (positive)
+            
             # FINANCIAL INTERPRETATION: Client PnL > 0 (PROFIT) → You owe client → Remaining is NEGATIVE
             you_owe_list.append({
                 "client": client_exchange.client,
@@ -1299,7 +1381,7 @@ def pending_summary(request):
                 "client_pnl": client_pnl,  # Masked in template
                 "amount_owed": unpaid_profit,  # Amount you owe = profit (masked in template)
                 "my_share_amount": final_share,  # Final share (floor rounded)
-                "remaining_amount": -remaining_amount if remaining_amount > 0 else 0,  # Remaining to settle (NEGATIVE - you owe them)
+                "remaining_amount": display_remaining,  # Remaining to settle (NEGATIVE for profit, POSITIVE for loss)
                 "share_percentage": share_pct,
                 "show_na": show_na,  # Flag for N.A display
             })
@@ -1407,8 +1489,8 @@ def export_pending_csv(request):
             # When PnL = 0, always show N.A
             show_na = True
             
-            # Use default share percentage (loss_share_percentage or my_percentage)
-            share_pct = client_exchange.loss_share_percentage if client_exchange.loss_share_percentage > 0 else client_exchange.my_percentage
+            # Use helper method to get appropriate share percentage
+            share_pct = client_exchange.get_share_percentage(client_pnl)
             
             # Add to list with N.A
             clients_owe_list.append({
@@ -1442,10 +1524,16 @@ def export_pending_csv(request):
             
             total_loss = abs(client_pnl)  # Client_PnL is negative, so abs gives loss amount
             
-            # Use loss_share_percentage if set, otherwise fallback to my_percentage
-            share_pct = client_exchange.loss_share_percentage if client_exchange.loss_share_percentage > 0 else client_exchange.my_percentage
+            # Use helper method to get appropriate share percentage
+            share_pct = client_exchange.get_share_percentage(client_pnl)
             
             # Add to list (ALWAYS, even if FinalShare = 0)
+            # CRITICAL FIX (FAIL CASE 2): Remaining display sign based on PnL direction
+            if client_pnl < 0:
+                display_remaining = remaining_amount  # Client owes you (positive)
+            else:
+                display_remaining = -remaining_amount  # You owe client (negative)
+            
             clients_owe_list.append({
                 "client": client_exchange.client,
                 "exchange": client_exchange.exchange,
@@ -1453,7 +1541,7 @@ def export_pending_csv(request):
                 "client_pnl": client_pnl,
                 "amount_owed": total_loss,
                 "my_share_amount": final_share,
-                "remaining_amount": remaining_amount,
+                "remaining_amount": display_remaining,  # Signed based on PnL direction
                 "share_percentage": share_pct,
                 "show_na": show_na,  # Flag for N.A display
                 })
@@ -1477,10 +1565,18 @@ def export_pending_csv(request):
             
             unpaid_profit = client_pnl  # Client_PnL is positive (profit)
             
-            # Use profit_share_percentage if set, otherwise fallback to my_percentage
-            share_pct = client_exchange.profit_share_percentage if client_exchange.profit_share_percentage > 0 else client_exchange.my_percentage
+            # Use helper method to get appropriate share percentage
+            share_pct = client_exchange.get_share_percentage(client_pnl)
             
             # Add to list (ALWAYS, even if FinalShare = 0)
+            # CRITICAL FIX (FAIL CASE 2): Remaining display sign based on PnL direction
+            # IF Client_PnL > 0: DisplayRemaining = -CoreRemaining (you owe client)
+            # ELSE: DisplayRemaining = +CoreRemaining (client owes you)
+            if client_pnl > 0:
+                display_remaining = -remaining_amount  # You owe client (negative)
+            else:
+                display_remaining = remaining_amount  # Client owes you (positive)
+            
             # FINANCIAL INTERPRETATION: Client PnL > 0 (PROFIT) → You owe client → Remaining is NEGATIVE
             you_owe_list.append({
                 "client": client_exchange.client,
@@ -1489,7 +1585,7 @@ def export_pending_csv(request):
                 "client_pnl": client_pnl,
                 "amount_owed": unpaid_profit,
                 "my_share_amount": final_share,
-                "remaining_amount": -remaining_amount if remaining_amount > 0 else 0,  # Remaining to settle (NEGATIVE - you owe them)
+                "remaining_amount": display_remaining,  # Signed based on PnL direction
                 "share_percentage": share_pct,
                 "show_na": show_na,  # Flag for N.A display
             })
@@ -1681,7 +1777,7 @@ def report_overview(request):
     # Add specific client filter if specified
     if client_id:
         user_filter["client_exchange__client_id"] = client_id
-    
+
     # Initialize base queryset with user filter
     base_qs = Transaction.objects.filter(**user_filter)
     
@@ -1742,7 +1838,10 @@ def report_overview(request):
 
     
     # Overall totals (filtered by time travel if applicable)
-    total_turnover = base_qs.aggregate(total=Sum("amount"))["total"] or 0
+    # CORRECTNESS LOGIC: Turnover = Cash Turnover (Option A - Recommended)
+    # Turnover = Σ(|RECORD_PAYMENT.amount|) - only actual cash movements
+    turnover_qs = base_qs.filter(type='RECORD_PAYMENT')
+    total_turnover = turnover_qs.aggregate(total=Sum("amount"))["total"] or 0
     
     # 📘 YOUR TOTAL PROFIT Calculation (CORRECTNESS LOGIC)
     # SINGLE SOURCE OF TRUTH: RECORD_PAYMENT transactions only
@@ -1991,7 +2090,7 @@ def report_overview(request):
             total=Sum("amount")
         )["total"] or 0)
         
-        month_turnover_val = month_transactions.aggregate(total=Sum("amount"))["total"] or 0
+        month_turnover_val = month_payments.aggregate(total=Sum("amount"))["total"] or 0
         
         monthly_profit.insert(0, float(month_profit_val))
         monthly_loss.insert(0, float(month_loss_val))
@@ -2012,7 +2111,7 @@ def report_overview(request):
     
     # Initialize week_end to end_date (or today if end_date not set)
     week_end = end_date
-    
+
     for i in range(4):
         week_start = week_end - timedelta(days=6)
         weekly_labels.insert(0, f"Week {4-i} ({week_start.strftime('%b %d')} - {week_end.strftime('%b %d')})")
@@ -2022,7 +2121,7 @@ def report_overview(request):
             date__lte=week_end
         )
         
-        # Weekly profit/loss from RECORD_PAYMENT transactions (CORRECTNESS LOGIC)
+        # Weekly profit/loss and turnover from RECORD_PAYMENT transactions only (CORRECTNESS LOGIC)
         week_payments = week_transactions.filter(type='RECORD_PAYMENT')
         week_profit_val = week_payments.filter(amount__gt=0).aggregate(
             total=Sum("amount")
@@ -2031,7 +2130,7 @@ def report_overview(request):
             total=Sum("amount")
         )["total"] or 0)
         
-        week_turnover_val = week_transactions.aggregate(total=Sum("amount"))["total"] or 0
+        week_turnover_val = week_payments.aggregate(total=Sum("amount"))["total"] or 0
         
         weekly_profit.insert(0, float(week_profit_val))
         weekly_loss.insert(0, float(week_loss_val))
@@ -3431,9 +3530,19 @@ def link_client_to_exchange(request):
             messages.error(request, f"Error linking client to exchange: {str(e)}")
     
     # GET request - show form
+    # Check if client is pre-selected via query parameter
+    selected_client_id = request.GET.get("client")
+    if selected_client_id:
+        # Validate that the client exists and belongs to the user
+        try:
+            Client.objects.get(pk=selected_client_id, user=request.user)
+        except Client.DoesNotExist:
+            selected_client_id = None  # Invalid client ID, don't pre-select
+    
     return render(request, "core/exchanges/link_to_client.html", {
         "clients": Client.objects.filter(user=request.user).order_by("name"),
         "exchanges": Exchange.objects.all().order_by("name"),
+        "selected_client_id": selected_client_id,  # Pass the string ID directly
     })
 
 
@@ -3657,11 +3766,17 @@ def record_payment(request, account_id):
         if not paid_amount_str:
             from django.contrib import messages
             messages.error(request, "Paid amount is required.")
+            # Calculate display remaining
+            if client_pnl > 0:
+                display_remaining = -remaining_amount
+            else:
+                display_remaining = remaining_amount
             return render(request, "core/exchanges/record_payment.html", {
                 'account': account,
                 'client_pnl': client_pnl,
                 'final_share': final_share,
                 'remaining_amount': remaining_amount,
+                'display_remaining': display_remaining,
             })
         
         try:
@@ -3669,11 +3784,17 @@ def record_payment(request, account_id):
             if paid_amount <= 0:
                 from django.contrib import messages
                 messages.error(request, "Paid amount must be greater than zero.")
+                # Calculate display remaining
+                if client_pnl > 0:
+                    display_remaining = -remaining_amount
+                else:
+                    display_remaining = remaining_amount
                 return render(request, "core/exchanges/record_payment.html", {
                     'account': account,
                     'client_pnl': client_pnl,
                     'final_share': final_share,
                     'remaining_amount': remaining_amount,
+                    'display_remaining': display_remaining,
                 })
             
             # CRITICAL: Use database row locking to prevent concurrent payment race conditions
@@ -3689,8 +3810,17 @@ def record_payment(request, account_id):
                         .get(pk=account_id, client__user=request.user)
                     )
                     
-                    # Recalculate values with locked account (may have changed)
-                    client_pnl = account.compute_client_pnl()
+                    # CRITICAL FIX (FAIL CASE 1): Calculate Client_PnL BEFORE any balance updates
+                    # Golden Rule: Transaction sign must be decided BEFORE balance mutation
+                    client_pnl_before = account.compute_client_pnl()
+                    
+                    # CRITICAL FIX (FAIL CASE 6): Check if PnL = 0 (trading flat, not settlement complete)
+                    if client_pnl_before == 0:
+                        from django.contrib import messages
+                        messages.warning(request, "Account PnL is zero (trading flat). No settlement needed.")
+                        if redirect_to == 'pending_summary':
+                            return redirect(reverse("pending_summary"))
+                        return redirect(reverse("exchange_account_detail", args=[account.pk]))
                     
                     # CRITICAL FIX: Lock share at first compute per PnL cycle
                     account.lock_initial_share_if_needed()
@@ -3720,13 +3850,19 @@ def record_payment(request, account_id):
                             f"Initial share: {initial_final_share}, Already settled: {total_settled}"
                         )
                     
-                    # Check if PnL = 0 (trading flat, not settlement complete)
-                    if client_pnl == 0:
-                        from django.contrib import messages
-                        messages.warning(request, "Account PnL is zero (trading flat). No settlement needed.")
-                        if redirect_to == 'pending_summary':
-                            return redirect(reverse("pending_summary"))
-                        return redirect(reverse("exchange_account_detail", args=[account.pk]))
+                    # CRITICAL FIX (FAIL CASE 1): Decide transaction sign BEFORE balance update
+                    # CORRECTNESS LOGIC: Sign depends ONLY on Client_PnL BEFORE payment
+                    # IF Client_PnL > 0 (client in profit): Transaction.amount = -SharePayment (you paid client)
+                    # ELSE IF Client_PnL < 0 (client in loss): Transaction.amount = +SharePayment (client paid you)
+                    if client_pnl_before > 0:
+                        # PROFIT CASE: YOU pay client → amount is NEGATIVE (your loss)
+                        transaction_amount = -paid_amount
+                    elif client_pnl_before < 0:
+                        # LOSS CASE: Client pays YOU → amount is POSITIVE (your profit)
+                        transaction_amount = paid_amount
+                    else:
+                        # PnL = 0 (should not happen due to earlier check, but handle gracefully)
+                        transaction_amount = 0
                     
                     # Apply RECORD PAYMENT logic (MASKED SHARE SETTLEMENT SYSTEM)
                     old_funding = account.funding
@@ -3736,10 +3872,7 @@ def record_payment(request, account_id):
                     locked_share_pct = account.locked_share_percentage
                     if locked_share_pct is None or locked_share_pct == 0:
                         # Fallback to current share percentage if not locked yet
-                        if client_pnl < 0:
-                            locked_share_pct = account.loss_share_percentage if account.loss_share_percentage > 0 else account.my_percentage
-                        else:
-                            locked_share_pct = account.profit_share_percentage if account.profit_share_percentage > 0 else account.my_percentage
+                        locked_share_pct = account.get_share_percentage(client_pnl_before)
                     
                     # CRITICAL FIX: MaskedCapital formula - map linearly back to PnL
                     # Formula: MaskedCapital = (SharePayment × abs(LockedInitialPnL)) / LockedInitialFinalShare
@@ -3754,13 +3887,13 @@ def record_payment(request, account_id):
                     locked_initial_pnl = account.locked_initial_pnl
                     if locked_initial_pnl is None:
                         # Should not happen if share is locked correctly
-                        locked_initial_pnl = abs(client_pnl)
+                        locked_initial_pnl = abs(client_pnl_before)
                     
-                    # CORRECT FORMULA: MaskedCapital = (SharePayment × abs(LockedInitialPnL)) / LockedInitialFinalShare
-                    masked_capital = int((paid_amount * abs(locked_initial_pnl)) / initial_final_share)
+                    # Use helper method to compute masked capital
+                    masked_capital = account.compute_masked_capital(paid_amount)
                     
                     # CRITICAL: Validate that funding/exchange_balance won't go negative
-                    if client_pnl < 0:
+                    if client_pnl_before < 0:
                         # LOSS CASE: Masked capital reduces Funding
                         # Formula: Funding = Funding − MaskedCapital
                         if account.funding - int(masked_capital) < 0:
@@ -3792,16 +3925,7 @@ def record_payment(request, account_id):
                     )
                     
                     # Create transaction record for audit trail
-                    # FINAL SIGN LOGIC (THE LAW): Always from YOUR point of view
-                    # - Client paid YOU → +X (POSITIVE) - Your profit
-                    # - YOU paid client → -X (NEGATIVE) - Your loss
-                    # Minus never means "client paid", minus always means "you paid"
-                    if client_pnl < 0:
-                        # LOSS CASE: Client pays YOU → amount is POSITIVE (your profit)
-                        transaction_amount = paid_amount
-                    else:
-                        # PROFIT CASE: YOU pay client → amount is NEGATIVE (your loss)
-                        transaction_amount = -paid_amount
+                    # Transaction sign was already decided BEFORE balance update (FAIL CASE 1 FIX)
                     
                     Transaction.objects.create(
                         client_exchange=account,
@@ -3845,38 +3969,68 @@ def record_payment(request, account_id):
             except ValidationError as e:
                 from django.contrib import messages
                 messages.error(request, str(e))
+                # Calculate display remaining
+                if client_pnl > 0:
+                    display_remaining = -remaining_amount
+                else:
+                    display_remaining = remaining_amount
                 return render(request, "core/exchanges/record_payment.html", {
                     'account': account,
                     'client_pnl': client_pnl,
                     'final_share': final_share,
                     'remaining_amount': remaining_amount,
+                    'display_remaining': display_remaining,
                 })
             
         except ValueError:
             from django.contrib import messages
             messages.error(request, "Invalid amount. Please enter a valid number.")
+            # Calculate display remaining
+            if client_pnl > 0:
+                display_remaining = -remaining_amount
+            else:
+                display_remaining = remaining_amount
             return render(request, "core/exchanges/record_payment.html", {
                 'account': account,
                 'client_pnl': client_pnl,
                 'final_share': final_share,
                 'remaining_amount': remaining_amount,
+                'display_remaining': display_remaining,
             })
         except Exception as e:
             from django.contrib import messages
             messages.error(request, f"Error recording payment: {str(e)}")
+            # Calculate display remaining
+            if client_pnl > 0:
+                display_remaining = -remaining_amount
+            else:
+                display_remaining = remaining_amount
             return render(request, "core/exchanges/record_payment.html", {
                 'account': account,
                 'client_pnl': client_pnl,
                 'final_share': final_share,
                 'remaining_amount': remaining_amount,
+                'display_remaining': display_remaining,
             })
     
     # GET request - show form
+    # CORRECTNESS LOGIC: Display remaining with sign based on PnL direction
+    # Step 1: Core Remaining (ALWAYS POSITIVE)
+    core_remaining = remaining_amount
+    # Step 2: Display Sign (BASED ON PnL)
+    # IF Client_PnL > 0: DisplayRemaining = -CoreRemaining (you owe client)
+    # ELSE: DisplayRemaining = +CoreRemaining (client owes you)
+    if client_pnl > 0:
+        display_remaining = -core_remaining
+    else:
+        display_remaining = core_remaining
+    
     return render(request, "core/exchanges/record_payment.html", {
         'account': account,
         'client_pnl': client_pnl,
         'final_share': final_share,
-        'remaining_amount': remaining_amount,
+        'remaining_amount': remaining_amount,  # Keep positive for max validation
+        'display_remaining': display_remaining,  # Signed for display
     })
 
 

@@ -1,0 +1,36 @@
+{% extends "core/base.html" %}
+
+{% block title %}Security Error · Transaction Hub{% endblock %}
+
+{% block unauthenticated_content %}
+<div style="max-width: 500px; margin: 60px auto;">
+    <div style="background: var(--bg-content); border-radius: 8px; padding: 32px; border: 1px solid var(--border);">
+        <h2 style="font-size: 24px; font-weight: 600; margin-bottom: 24px; text-align: center; color: #dc2626;">
+            Security Verification Failed
+        </h2>
+        
+        <div style="background: #fee2e2; color: #991b1b; padding: 16px; border-radius: 8px; margin-bottom: 24px; border: 1px solid #dc2626;">
+            <p style="margin: 0;">
+                {{ error|default:"Your request could not be verified for security reasons. This may happen if:" }}
+            </p>
+            <ul style="margin: 12px 0 0 20px; padding: 0;">
+                <li>Your session has expired</li>
+                <li>You submitted the form from a different page</li>
+                <li>Your browser's security settings blocked the request</li>
+            </ul>
+        </div>
+        
+        <div style="text-align: center;">
+            <a href="{% url 'login' %}" class="btn btn-primary">Return to Login</a>
+            <a href="javascript:history.back()" class="btn" style="margin-left: 8px;">Go Back</a>
+        </div>
+        
+        <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--border);">
+            <p style="font-size: 13px; color: var(--muted); text-align: center; margin: 0;">
+                If this problem persists, please clear your browser cookies and try again.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

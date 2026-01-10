@@ -216,6 +216,59 @@ class ClientExchangeAccount(TimeStampedModel):
         """
         return self.exchange_balance - self.funding
     
+    def get_share_percentage(self, client_pnl=None):
+        """
+        BASE LOGIC: Get appropriate share percentage based on PnL direction.
+        
+        Rules:
+        - If client_pnl < 0 (LOSS): Use loss_share_percentage if set and > 0, else my_percentage
+        - If client_pnl > 0 (PROFIT): Use profit_share_percentage if set and > 0, else my_percentage
+        - If client_pnl == 0: Return 0 (no share on zero PnL)
+        
+        Args:
+            client_pnl: Optional PnL value. If None, computes from current balances.
+        
+        Returns:
+            int: Share percentage (0-100)
+        """
+        if client_pnl is None:
+            client_pnl = self.compute_client_pnl()
+        
+        if client_pnl < 0:
+            # LOSS CASE: Use loss_share_percentage if set and > 0, else fallback to my_percentage
+            share_pct = self.loss_share_percentage if self.loss_share_percentage and self.loss_share_percentage > 0 else self.my_percentage
+        elif client_pnl > 0:
+            # PROFIT CASE: Use profit_share_percentage if set and > 0, else fallback to my_percentage
+            share_pct = self.profit_share_percentage if self.profit_share_percentage and self.profit_share_percentage > 0 else self.my_percentage
+        else:
+            # ZERO PnL: No share
+            share_pct = 0
+        
+        return share_pct
+    
+    def compute_masked_capital(self, share_payment):
+        """
+        Calculate masked capital from share payment.
+        
+        Formula: MaskedCapital = (SharePayment × abs(LockedInitialPnL)) / LockedInitialFinalShare
+        
+        This ensures SharePayment maps back to PnL linearly, not exponentially.
+        
+        Args:
+            share_payment: Share payment amount (integer)
+        
+        Returns:
+            int: Masked capital amount
+        """
+        settlement_info = self.get_remaining_settlement_amount()
+        initial_final_share = settlement_info['initial_final_share']
+        locked_initial_pnl = self.locked_initial_pnl
+        
+        if initial_final_share == 0 or locked_initial_pnl is None:
+            return 0
+        
+        return int((share_payment * abs(locked_initial_pnl)) / initial_final_share)
+    
     def compute_my_share(self):
         """
         MASKED SHARE SETTLEMENT SYSTEM - PARTNER SHARE FORMULA
@@ -231,13 +284,8 @@ class ClientExchangeAccount(TimeStampedModel):
         if client_pnl == 0:
             return 0
         
-        # Determine which percentage to use
-        if client_pnl < 0:
-            # LOSS: Use loss_share_percentage (or fallback to my_percentage)
-            share_pct = self.loss_share_percentage if self.loss_share_percentage > 0 else self.my_percentage
-        else:
-            # PROFIT: Use profit_share_percentage (or fallback to my_percentage)
-            share_pct = self.profit_share_percentage if self.profit_share_percentage > 0 else self.my_percentage
+        # Use helper method to get appropriate share percentage
+        share_pct = self.get_share_percentage(client_pnl)
         
         # Exact Share (NO rounding)
         exact_share = abs(client_pnl) * (share_pct / 100.0)
@@ -258,11 +306,8 @@ class ClientExchangeAccount(TimeStampedModel):
         if client_pnl == 0:
             return 0.0
         
-        # Determine which percentage to use
-        if client_pnl < 0:
-            share_pct = self.loss_share_percentage if self.loss_share_percentage > 0 else self.my_percentage
-        else:
-            share_pct = self.profit_share_percentage if self.profit_share_percentage > 0 else self.my_percentage
+        # Use helper method to get appropriate share percentage
+        share_pct = self.get_share_percentage(client_pnl)
         
         # Exact Share (NO rounding)
         exact_share = abs(client_pnl) * (share_pct / 100.0)
@@ -330,11 +375,8 @@ class ClientExchangeAccount(TimeStampedModel):
             # First time - lock the share
             final_share = self.compute_my_share()
             if final_share > 0:
-                # Determine which percentage to use
-                if client_pnl < 0:
-                    share_pct = self.loss_share_percentage if self.loss_share_percentage > 0 else self.my_percentage
-                else:
-                    share_pct = self.profit_share_percentage if self.profit_share_percentage > 0 else self.my_percentage
+                # Use helper method to get appropriate share percentage
+                share_pct = self.get_share_percentage(client_pnl)
                 
                 self.locked_initial_final_share = final_share
                 self.locked_share_percentage = share_pct
@@ -348,10 +390,8 @@ class ClientExchangeAccount(TimeStampedModel):
                 # PnL cycle changed - lock new share
                 final_share = self.compute_my_share()
                 if final_share > 0:
-                    if client_pnl < 0:
-                        share_pct = self.loss_share_percentage if self.loss_share_percentage > 0 else self.my_percentage
-                    else:
-                        share_pct = self.profit_share_percentage if self.profit_share_percentage > 0 else self.my_percentage
+                    # Use helper method to get appropriate share percentage
+                    share_pct = self.get_share_percentage(client_pnl)
                     
                     self.locked_initial_final_share = final_share
                     self.locked_share_percentage = share_pct
@@ -425,10 +465,8 @@ class ClientExchangeAccount(TimeStampedModel):
             if current_share > 0:
                 # Current share exists but not locked - lock it now
                 client_pnl = self.compute_client_pnl()
-                if client_pnl < 0:
-                    share_pct = self.loss_share_percentage if self.loss_share_percentage > 0 else self.my_percentage
-                else:
-                    share_pct = self.profit_share_percentage if self.profit_share_percentage > 0 else self.my_percentage
+                # Use helper method to get appropriate share percentage
+                share_pct = self.get_share_percentage(client_pnl)
                 
                 self.locked_initial_final_share = current_share
                 self.locked_share_percentage = share_pct

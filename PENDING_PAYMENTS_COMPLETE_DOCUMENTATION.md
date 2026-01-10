@@ -1,1276 +1,1127 @@
 # PENDING PAYMENTS SYSTEM - COMPLETE DOCUMENTATION
+## End-to-End Guide with All Formulas and Logic
 
-**Version:** 3.0 (With Cycle Separation)  
-**Status:** Production Ready  
-**Last Updated:** January 2026
+**Version:** FINAL  
+**Status:** Approved & Frozen  
+**System Type:** Masked Share Settlement System  
+**Last Updated:** 2026-01-09
 
 ---
 
 ## TABLE OF CONTENTS
 
-1. [System Overview](#system-overview)
-2. [Core Definitions](#core-definitions)
-3. [PnL Calculation](#pnl-calculation)
-4. [Share Calculation](#share-calculation)
-5. [Cycle Separation Logic](#cycle-separation-logic)
-6. [Locked Share Mechanism](#locked-share-mechanism)
-7. [Settlement Logic](#settlement-logic)
-8. [Remaining Amount Calculation](#remaining-amount-calculation)
-9. [MaskedCapital Formula](#maskedcapital-formula)
-10. [Edge Cases](#edge-cases)
-11. [Code Implementation](#code-implementation)
-12. [Testing Scenarios](#testing-scenarios)
-13. [Failure Cases and Fixes](#failure-cases-and-fixes)
+1. [System Overview](#1-system-overview)
+2. [Core Definitions](#2-core-definitions)
+3. [Master Formulas](#3-master-formulas)
+4. [Share Calculation Logic](#4-share-calculation-logic)
+5. [Share Locking Mechanism](#5-share-locking-mechanism)
+6. [Remaining Amount Calculation](#6-remaining-amount-calculation)
+7. [Settlement Process](#7-settlement-process)
+8. [Masked Capital Calculation](#8-masked-capital-calculation)
+9. [Sign Logic and Financial Interpretation](#9-sign-logic-and-financial-interpretation)
+10. [Display Rules](#10-display-rules)
+11. [Cycle Management](#11-cycle-management)
+12. [Edge Cases and Validations](#12-edge-cases-and-validations)
+13. [Complete Examples](#13-complete-examples)
+14. [Database Schema](#14-database-schema)
+15. [API Reference](#15-api-reference)
 
 ---
 
-## SYSTEM OVERVIEW
+## 1. SYSTEM OVERVIEW
 
-The Pending Payments System implements a **Masked Share Settlement System** that:
+### 1.1 Purpose
 
-- **Settles only the admin's share** (not full PnL)
-- **Hides actual profit/loss amounts** from UI
-- **Hides remaining percentages** from users
-- **Avoids decimals completely** (uses floor rounding)
-- **Allows partial and manual settlements**
-- **Supports dynamic profit percentage** (can change anytime)
-- **Separates PnL cycles** (prevents mixing old and new settlements)
-- **Keeps math simple, deterministic, and safe**
+The Pending Payments System manages settlements between admin and clients using a **Masked Share Settlement Model**. Key characteristics:
 
-### Key Principles
+- **Masked Settlement**: Client/admin settle only the share amount, not raw capital
+- **Dynamic Recalculation**: Settlements reduce trading exposure dynamically
+- **Share Locking**: Share is locked at first compute and never shrinks after payments
+- **Always Visible**: Clients always appear in pending list (even with N.A when not applicable)
+- **Cycle Separation**: Settlements are tracked per PnL cycle to prevent mixing
 
-1. **Precision is intentionally sacrificed** for simplicity and control
-2. **Shares are locked** at first compute per PnL cycle
-3. **Cycles reset** when PnL sign changes (LOSS ↔ PROFIT)
-4. **Old cycle settlements** never mix with new cycle shares
-5. **Manual control** is prioritized over automation
+### 1.2 Key Principles
 
----
-
-## CORE DEFINITIONS
-
-| Term | Meaning | Formula/Notes |
-|------|---------|---------------|
-| **Funding (F)** | Capital given to client | Stored as BIGINT |
-| **Exchange Balance (EB)** | Final balance on exchange | Stored as BIGINT |
-| **Loss (L)** | `max(F − EB, 0)` | Always ≥ 0 |
-| **Profit (P)** | `max(EB − F, 0)` | Always ≥ 0 |
-| **Client PnL** | `EB − F` | Can be negative (loss) or positive (profit) |
-| **Loss Share %** | Fixed percentage for losses | Immutable once data exists |
-| **Profit Share %** | Percentage for profits | Can change anytime, affects only future profits |
-| **Exact Share** | Share before rounding | Full precision, internal only |
-| **Final Share** | Share after floor rounding | Integer, shown to users |
-| **Settlement** | Actual payment recorded | Tracks individual payments |
-| **Remaining** | `LockedInitialFinalShare − TotalSettled` | Amount still to be settled |
-| **Cycle Start Date** | Timestamp when PnL cycle started | Used to filter settlements by cycle |
-
-### Important Notes
-
-- **Only one of Loss or Profit can be > 0** at any time
-- **Percentages are never rounded** (full precision used internally)
-- **Rounding happens ONLY ONCE** (floor method)
-- **Fractional values are discarded permanently**
+1. **Share is decided by trading outcome, not by settlement**
+2. **Share NEVER shrinks after payments** (locked at first compute)
+3. **Clients MUST always appear in pending list** (for visibility)
+4. **Settlements reduce exposure using masked capital**
+5. **Sign convention: Always from YOUR point of view**
 
 ---
 
-## PnL CALCULATION
+## 2. CORE DEFINITIONS
 
-### Formula
+### 2.1 Account Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `funding` | Decimal | Capital given to client |
+| `exchange_balance` | Decimal | Current balance on exchange |
+| `my_percentage` | Integer | Default share percentage (0-100) |
+| `loss_share_percentage` | Integer | Share % for losses (0-100, optional) |
+| `profit_share_percentage` | Integer | Share % for profits (0-100, optional) |
+| `locked_initial_final_share` | Integer | Locked share amount (immutable) |
+| `locked_share_percentage` | Integer | Locked share percentage |
+| `locked_initial_pnl` | Decimal | Locked PnL when share was computed |
+| `locked_initial_funding` | Decimal | Funding when cycle started |
+| `cycle_start_date` | DateTime | When current PnL cycle started |
+
+### 2.2 Settlement Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `client_exchange` | ForeignKey | Account this settlement belongs to |
+| `amount` | Integer | Share payment amount (always positive) |
+| `date` | DateTime | When settlement occurred |
+| `notes` | Text | Optional notes |
+
+### 2.3 Transaction Fields (RECORD_PAYMENT)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `client_exchange` | ForeignKey | Account this transaction belongs to |
+| `type` | String | Always 'RECORD_PAYMENT' |
+| `amount` | Decimal | **Signed amount**: +X = client paid you, -X = you paid client |
+| `date` | DateTime | When payment was recorded |
+| `exchange_balance_after` | Decimal | Exchange balance after this payment |
+| `notes` | Text | Optional notes |
+
+---
+
+## 3. MASTER FORMULAS
+
+### 3.1 Client Profit/Loss (FOUNDATION)
 
 ```
 Client_PnL = ExchangeBalance − Funding
 ```
 
-### Implementation
+**Where:**
+- `ExchangeBalance` = Current balance on exchange
+- `Funding` = Capital given to client
 
+**Result Interpretation:**
+- `Client_PnL < 0` → **LOSS** (Client owes you)
+- `Client_PnL > 0` → **PROFIT** (You owe client)
+- `Client_PnL = 0` → **NEUTRAL** (No exposure)
+
+**Implementation:**
 ```python
 def compute_client_pnl(self):
-    """
-    MASTER PROFIT/LOSS FORMULA
-    Client_PnL = exchange_balance - funding
-    
-    Returns: BIGINT (can be negative for loss)
-    """
     return self.exchange_balance - self.funding
 ```
 
-### Examples
-
-| Funding | Exchange Balance | Client PnL | Interpretation |
-|---------|------------------|------------|---------------|
-| 100 | 50 | -50 | Loss (client owes) |
-| 100 | 150 | +50 | Profit (you owe client) |
-| 100 | 100 | 0 | Flat (no settlement) |
-
-### Rules
-
-- **NO rounding** in PnL calculation
-- **Full precision** maintained
-- **Can be negative** (loss) or **positive** (profit)
-
 ---
 
-## SHARE CALCULATION
+### 3.2 Share Calculation (CORE LOGIC)
 
-### Step 1: Determine Share Percentage
+#### Step 1: Determine Share Percentage
 
-```python
-if Client_PnL < 0:
-    # LOSS: Use loss_share_percentage
-    share_pct = loss_share_percentage if loss_share_percentage > 0 else my_percentage
-else:
-    # PROFIT: Use profit_share_percentage
-    share_pct = profit_share_percentage if profit_share_percentage > 0 else my_percentage
+```
+IF Client_PnL < 0 (LOSS):
+    Share% = loss_share_percentage IF loss_share_percentage > 0
+            ELSE my_percentage
+
+IF Client_PnL > 0 (PROFIT):
+    Share% = profit_share_percentage IF profit_share_percentage > 0
+            ELSE my_percentage
+
+IF Client_PnL = 0:
+    Share = 0 (no share)
 ```
 
-### Step 2: Calculate Exact Share (NO Rounding)
+#### Step 2: Calculate Exact Share
 
 ```
 ExactShare = |Client_PnL| × (Share% / 100)
 ```
 
-**Rules:**
-- Percentages are never rounded
-- Full precision is used internally
-- ExactShare is a float (not shown to users)
+**Note:** Uses absolute value of PnL (always positive for calculation)
 
-### Step 3: Calculate Final Share (ONLY Rounding Step)
+#### Step 3: Calculate Final Share (Floor Rounding)
 
 ```
 FinalShare = floor(ExactShare)
 ```
 
-**Rounding Policy:**
-- **Method:** FLOOR (round down)
-- **Happens ONLY ONCE**
-- **Applies to both client and admin**
-- **No decimals shown or settled**
-- **Fractional values discarded permanently**
+**Rounding Rules:**
+- **Method**: FLOOR (round down)
+- **Applied**: Only once, at final step
+- **Percentages**: NEVER rounded
+- **Result**: Always integer (BIGINT)
 
-### Implementation
-
+**Implementation:**
 ```python
+import math
+
 def compute_my_share(self):
-    """
-    MASKED SHARE SETTLEMENT SYSTEM - PARTNER SHARE FORMULA
-    
-    Uses floor() rounding (round down) for final share.
-    Separate percentages for loss and profit.
-    
-    Returns: BIGINT (always positive, floor rounded)
-    """
-    import math
-    client_pnl = self.compute_client_pnl()
+client_pnl = self.compute_client_pnl()
     
     if client_pnl == 0:
         return 0
     
-    # Determine which percentage to use
+    # Determine share percentage
     if client_pnl < 0:
         share_pct = self.loss_share_percentage if self.loss_share_percentage > 0 else self.my_percentage
     else:
         share_pct = self.profit_share_percentage if self.profit_share_percentage > 0 else self.my_percentage
     
-    # Exact Share (NO rounding)
+    # Calculate exact share
     exact_share = abs(client_pnl) * (share_pct / 100.0)
     
-    # Final Share (ONLY rounding step) - FLOOR (round down)
+    # Floor round to get final share
     final_share = math.floor(exact_share)
     
     return int(final_share)
 ```
 
-### Examples
-
-| PnL | Share % | Exact Share | Final Share |
-|-----|---------|-------------|-------------|
-| -90 | 10% | 9.0 | 9 |
-| -90 | 5% | 4.5 | 4 |
-| +50 | 20% | 10.0 | 10 |
-| +50 | 15% | 7.5 | 7 |
-| -1 | 10% | 0.1 | 0 |
-
----
-
-## CYCLE SEPARATION LOGIC
-
-### Critical Rule
-
-**Every time PnL crosses zero (sign changes):**
-- **LOSS → PROFIT**: NEW cycle starts
-- **PROFIT → LOSS**: NEW cycle starts
-- **Old cycle closes** (settlements preserved but not counted)
-- **New cycle starts** (only new settlements counted)
-
-### Why Cycle Separation is Critical
-
-**Without cycle separation, the system FAILS:**
-
-**Example Failure:**
+**Example:**
 ```
-Step 1: Funding=100, Exchange=10, PnL=-90, Share=9
-Step 2: Client pays 5 (remaining=4)
-Step 3: Exchange=100, PnL=+50, NEW PROFIT CYCLE starts
-Step 4: Exchange=20, PnL=-30, NEW LOSS CYCLE starts
-
-❌ WITHOUT CYCLE SEPARATION:
-- Old settlement (5) mixes with new cycle
-- Remaining calculation becomes wrong
-- Shares from different cycles get confused
-
-✅ WITH CYCLE SEPARATION:
-- Old settlement (5) preserved but NOT counted in new cycle
-- Each cycle has its own locked share
-- Settlements filtered by cycle_start_date
-```
-
-### Cycle Start Detection
-
-**Cycle resets when:**
-
-1. **PnL sign flips** (LOSS ↔ PROFIT)
-```python
-# Check if PnL cycle changed (sign flip)
-if (client_pnl < 0) != (self.locked_initial_pnl < 0):
-    # PnL cycle changed - lock new share
-    # Set cycle_start_date = now()
-    # Old cycle settlements are now excluded
-```
-
-2. **PnL magnitude reduces** (TRADING REDUCED EXPOSURE) ⭐ NEW FIX
-```python
-# CRITICAL FIX: PnL magnitude reduction should reset cycle
-if self.locked_initial_pnl is not None and client_pnl != 0:
-    locked_pnl_abs = abs(self.locked_initial_pnl)
-    current_pnl_abs = abs(client_pnl)
-    
-    if current_pnl_abs < locked_pnl_abs:
-        # PnL magnitude reduced → trading reduced exposure → old lock invalid
-        # Reset cycle to allow re-lock with new (smaller) PnL
-```
-
-**Why PnL magnitude reduction resets cycle:**
-- Trading reduced exposure = new trading outcome
-- Old locked share doesn't apply to reduced exposure
-- Example: Profit +100→+1, Share should be 10→0, not stuck at 10
-- Prevents overcharging when profit/loss shrinks
-
-3. **Funding changes** (NEW EXPOSURE = NEW CYCLE)
-```python
-# CRITICAL FIX: Funding change should reset cycle (new exposure = new cycle)
-if self.locked_initial_final_share is not None:
-    if self.locked_initial_funding is not None:
-        # New data: Compare with tracked funding
-        if self.funding != self.locked_initial_funding:
-            # Funding changed → new exposure → new cycle
-            # Reset all locks to force new cycle
-    else:
-        # Old data: Check if PnL increased significantly (>50%, likely funding changed)
-        # Reset cycle
-```
-
-**Why funding change resets cycle:**
-- New funding = new exposure = new trading cycle
-- Old locked share doesn't apply to new exposure
-- Example: Funding 100→300, PnL -90→-200, Share should be 9→20, not stuck at 9
-
-### Cycle Tracking Fields
-
-| Field | Purpose |
-|-------|---------|
-| `cycle_start_date` | Timestamp when current cycle started |
-| `locked_initial_final_share` | Share locked at cycle start |
-| `locked_initial_pnl` | PnL locked at cycle start (for sign detection) |
-
-### Settlement Filtering
-
-```python
-# Only count settlements from CURRENT cycle
-if self.cycle_start_date:
-    total_settled = self.settlements.filter(
-        date__gte=self.cycle_start_date
-    ).aggregate(total=models.Sum('amount'))['total'] or 0
-else:
-    # Backward compatibility: count all settlements
-    total_settled = self.settlements.aggregate(total=models.Sum('amount'))['total'] or 0
-```
-
-### Cycle Reset Rules
-
-1. **New cycle starts when:**
-   - First time locking share
-   - PnL sign flips (LOSS ↔ PROFIT)
-   - **PnL magnitude reduces** (trading reduced exposure) ⭐ NEW FIX
-   - **Funding changes** (new exposure = new cycle) ⭐ NEW FIX
-
-2. **Cycle closes when:**
-   - Fully settled (total_settled >= locked_initial_final_share)
-   - PnL becomes zero AND fully settled
-
-3. **Cycle persists when:**
-   - PnL becomes zero but NOT fully settled
-   - Partial settlements exist
-   - Funding unchanged (same exposure continues)
-
----
-
-## LOCKED SHARE MECHANISM
-
-### Purpose
-
-**Prevents share from shrinking after payments.**
-
-Without locking:
-- Settlement changes PnL
-- PnL change recalculates share
-- Share shrinks → **WRONG**
-
-With locking:
-- Share locked at first compute
-- Settlement doesn't change locked share
-- Remaining calculated from locked share → **CORRECT**
-
-### Locking Logic
-
-```python
-def lock_initial_share_if_needed(self):
-    """
-    CRITICAL FIX: Lock InitialFinalShare at first compute per PnL cycle.
-    
-    This ensures share doesn't shrink after payments.
-    Share is decided by trading outcome, not by settlement.
-    """
-    client_pnl = self.compute_client_pnl()
-    
-    # Case 1: First time - lock the share
-    if self.locked_initial_final_share is None or self.locked_initial_pnl is None:
-        final_share = self.compute_my_share()
-        if final_share > 0:
-            # Lock share, percentage, PnL, and cycle start date
-            self.locked_initial_final_share = final_share
-            self.locked_share_percentage = share_pct
-            self.locked_initial_pnl = client_pnl
-            self.cycle_start_date = timezone.now()
-    
-    # Case 2: PnL cycle changed (sign flip)
-    elif client_pnl != 0 and self.locked_initial_pnl != 0:
-        if (client_pnl < 0) != (self.locked_initial_pnl < 0):
-            # Sign flip detected - NEW CYCLE
-            final_share = self.compute_my_share()
-            if final_share > 0:
-                # Lock new share and reset cycle start date
-                self.locked_initial_final_share = final_share
-                self.locked_share_percentage = share_pct
-                self.locked_initial_pnl = client_pnl
-                self.cycle_start_date = timezone.now()
-    
-    # Case 3: PnL is zero
-    elif client_pnl == 0:
-        # Only reset if fully settled
-        if cycle_settled >= (self.locked_initial_final_share or 0):
-            # Reset all locks
-            self.locked_initial_final_share = None
-            self.locked_share_percentage = None
-            self.locked_initial_pnl = None
-            self.cycle_start_date = None
-```
-
-### Locked Fields
-
-| Field | Purpose | When Set | When Reset |
-|-------|---------|----------|------------|
-| `locked_initial_final_share` | Share locked at cycle start | First compute or sign flip | Fully settled |
-| `locked_share_percentage` | Percentage used for locked share | Same as above | Same as above |
-| `locked_initial_pnl` | PnL at cycle start (for sign detection) | Same as above | Same as above |
-| `cycle_start_date` | Timestamp when cycle started | Same as above | Same as above |
-
-### Example: Locking Prevents Share Shrinking
-
-**Without Lock:**
-```
-Initial: Funding=1000, Exchange=700, PnL=-300, Share=30
-Client pays 30: Funding=700, Exchange=700, PnL=0, Share=0 ❌ WRONG
-```
-
-**With Lock:**
-```
-Initial: Funding=1000, Exchange=700, PnL=-300, LockedShare=30
-Client pays 30: Funding=700, Exchange=700, PnL=0, LockedShare=30 ✅ CORRECT
-Remaining = 30 - 30 = 0 ✅ CORRECT
+Funding = 1000
+Exchange Balance = 700
+Client_PnL = 700 - 1000 = -300 (LOSS)
+Share% = 10%
+ExactShare = 300 × 10% = 30.0
+FinalShare = floor(30.0) = 30
 ```
 
 ---
 
-## SETTLEMENT LOGIC
-
-### Direction Rules
-
-| PnL Sign | Who Owes | Direction |
-|----------|----------|-----------|
-| **Loss (PnL < 0)** | Client owes admin | Client → Admin |
-| **Profit (PnL > 0)** | Admin owes client | Admin → Client |
-
-### Settlement Rules
-
-1. **Partial settlements allowed**
-   - Integer values only
-   - Can record multiple payments
-   - Until remaining = 0
-
-2. **Validation:**
-   - `0 < SettlementAmount ≤ Remaining`
-   - `FinalShare > 0` (no settlement if share = 0)
-   - `Remaining > 0` (no over-settlement)
-
-3. **Settlement creates:**
-   - `Settlement` record (tracks payment)
-   - Updates `funding` or `exchange_balance` (via MaskedCapital)
-   - Updates PnL (as side effect)
-
-### Settlement Flow
+### 3.3 Remaining Settlement Amount
 
 ```
-1. User records payment amount
-2. System validates:
-   - FinalShare > 0?
-   - Remaining > 0?
-   - SettlementAmount ≤ Remaining?
-3. Calculate MaskedCapital
-4. Update funding/exchange_balance
-5. Create Settlement record
-6. Recalculate remaining
+Remaining = LockedInitialFinalShare − Sum(SharePayments from Current Cycle)
+Overpaid = max(0, Sum(SharePayments) − LockedInitialFinalShare)
 ```
 
-### Implementation
-
-```python
-def record_payment(request, account_id):
-    """
-    Record a payment for a client-exchange account.
-    
-    MASKED SHARE SETTLEMENT SYSTEM - Settlement Logic:
-    - Uses database row locking to prevent concurrent payment race conditions
-    - Calculates FinalShare using floor() rounding
-    - Validates against remaining settlement amount
-    - Prevents negative funding/exchange_balance
-    - Creates Settlement record to track payments
-    - If Client_PnL < 0 (LOSS): funding = funding - MaskedCapital
-    - If Client_PnL > 0 (PROFIT): exchange_balance = exchange_balance - MaskedCapital
-    - Partial payments allowed
-    """
-    # Lock account row for concurrency safety
-    account = ClientExchangeAccount.objects.select_for_update().get(pk=account_id)
-    
-    # Lock share if needed
-    account.lock_initial_share_if_needed()
-    
-    # Get settlement info
-    settlement_info = account.get_remaining_settlement_amount()
-    remaining_amount = settlement_info['remaining']
-    initial_final_share = settlement_info['initial_final_share']
-    
-    # Validate
-    if initial_final_share == 0:
-        raise ValidationError("No settlement allowed: Final share is zero")
-    
-    if paid_amount > remaining_amount:
-        raise ValidationError(f"Over-settlement: {paid_amount} > {remaining_amount}")
-    
-    # Calculate MaskedCapital
-    locked_initial_pnl = account.locked_initial_pnl
-    masked_capital = int((paid_amount * abs(locked_initial_pnl)) / initial_final_share)
-    
-    # Update funding/exchange_balance
-    client_pnl = account.compute_client_pnl()
-    if client_pnl < 0:
-        # LOSS: Reduce funding
-        account.funding -= masked_capital
-    else:
-        # PROFIT: Reduce exchange_balance
-        account.exchange_balance -= masked_capital
-    
-    # Create Settlement record
-    Settlement.objects.create(
-        client_exchange=account,
-        amount=paid_amount,
-        notes=notes
-    )
-```
-
----
-
-## REMAINING AMOUNT CALCULATION
-
-### Formula
-
-```
-Remaining = LockedInitialFinalShare − TotalSettled (Current Cycle)
-Overpaid = max(0, TotalSettled − LockedInitialFinalShare)
-```
-
-### Critical Rules
-
+**Critical Rules:**
 1. **Always use locked share** - NEVER recalculate from current PnL
 2. **Only count settlements from current cycle** - Filter by `cycle_start_date`
 3. **Share NEVER shrinks** - It's locked at initial compute
 
-### Implementation
-
+**Implementation:**
 ```python
 def get_remaining_settlement_amount(self):
-    """
-    CRITICAL FIX: Calculate remaining using LOCKED InitialFinalShare.
-    
-    Formula: Remaining = LockedInitialFinalShare - Sum(SharePayments)
-    Overpaid = max(0, Sum(SharePayments) - LockedInitialFinalShare)
-    
-    Share is locked at first compute and NEVER shrinks after payments.
-    This ensures share is decided by trading outcome, not by settlement.
-    
-    Returns: dict with 'remaining', 'overpaid', 'initial_final_share', and 'total_settled'
-    """
-    # Lock share if needed
-    self.lock_initial_share_if_needed()
-    
-    # CRITICAL FIX: Only count settlements from CURRENT cycle
+# Lock share if needed
+self.lock_initial_share_if_needed()
+
+    # Count settlements from CURRENT cycle only
     if self.cycle_start_date:
-        # Only count settlements that occurred AFTER this cycle started
         total_settled = self.settlements.filter(
             date__gte=self.cycle_start_date
-        ).aggregate(total=models.Sum('amount'))['total'] or 0
+        ).aggregate(total=Sum('amount'))['total'] or 0
     else:
-        # Backward compatibility: count all settlements
-        total_settled = self.settlements.aggregate(total=models.Sum('amount'))['total'] or 0
+        total_settled = self.settlements.aggregate(total=Sum('amount'))['total'] or 0
     
     # Use locked share
     if self.locked_initial_final_share is not None:
-        initial_final_share = self.locked_initial_final_share
-    else:
-        # No locked share - check if we should lock current share
-        current_share = self.compute_my_share()
-        if current_share > 0:
-            # Lock it now
-            # ... (lock logic)
-            initial_final_share = current_share
-        else:
-            return {'remaining': 0, 'overpaid': 0, 'initial_final_share': 0, 'total_settled': total_settled}
+    initial_final_share = self.locked_initial_final_share
+else:
+        initial_final_share = 0
+
+# Calculate remaining and overpaid
+remaining = max(0, initial_final_share - total_settled)
+overpaid = max(0, total_settled - initial_final_share)
+
+return {
+    'remaining': remaining,
+    'overpaid': overpaid,
+    'initial_final_share': initial_final_share,
+    'total_settled': total_settled
+}
+```
+
+---
+
+### 3.4 Masked Capital Calculation
+
+**CRITICAL FORMULA:**
+
+```
+MaskedCapital = (SharePayment × abs(LockedInitialPnL)) / LockedInitialFinalShare
+```
+
+**Why This Formula:**
+- Maps SharePayment back to PnL **linearly** (not exponentially)
+- Prevents double-counting of share percentage
+- Ensures settlements reduce exposure proportionally
+
+**Example:**
+```
+LockedInitialPnL = -1000 (loss)
+LockedInitialFinalShare = 100 (10% share)
+SharePayment = 50
+
+MaskedCapital = (50 × 1000) / 100 = 500
+```
+
+This means: Paying 50 in share units reduces funding by 500 (the masked capital).
+
+---
+
+### 3.5 Settlement Impact on Balances
+
+#### LOSS CASE (Client_PnL < 0)
+
+```
+Funding = Funding − MaskedCapital
+ExchangeBalance = ExchangeBalance (unchanged)
+```
+
+**Formula:**
+```
+NewFunding = OldFunding − MaskedCapital
+```
+
+**Validation:**
+```
+IF NewFunding < 0:
+    BLOCK SETTLEMENT (cannot go negative)
+```
+
+#### PROFIT CASE (Client_PnL > 0)
+
+```
+ExchangeBalance = ExchangeBalance − MaskedCapital
+Funding = Funding (unchanged)
+```
+
+**Formula:**
+```
+NewExchangeBalance = OldExchangeBalance − MaskedCapital
+```
+
+**Validation:**
+```
+IF NewExchangeBalance < 0:
+    BLOCK SETTLEMENT (cannot go negative)
+```
+
+---
+
+## 4. SHARE CALCULATION LOGIC
+
+### 4.1 Complete Flow
+
+```
+1. Calculate Client_PnL
+   Client_PnL = ExchangeBalance − Funding
+
+2. Determine Share Percentage
+   IF Client_PnL < 0:
+       Share% = loss_share_percentage OR my_percentage
+   ELSE IF Client_PnL > 0:
+       Share% = profit_share_percentage OR my_percentage
+   ELSE:
+       Share = 0
+
+3. Calculate Exact Share
+   ExactShare = |Client_PnL| × (Share% / 100)
+
+4. Floor Round
+   FinalShare = floor(ExactShare)
+
+5. Lock Share (if not already locked)
+   IF locked_initial_final_share is None AND FinalShare > 0:
+       locked_initial_final_share = FinalShare
+       locked_share_percentage = Share%
+       locked_initial_pnl = Client_PnL
+       cycle_start_date = NOW()
+       locked_initial_funding = Funding
+```
+
+### 4.2 Share Percentage Priority
+
+1. **For Losses (Client_PnL < 0)**:
+   - Use `loss_share_percentage` if set (> 0)
+   - Otherwise use `my_percentage`
+
+2. **For Profits (Client_PnL > 0)**:
+   - Use `profit_share_percentage` if set (> 0)
+   - Otherwise use `my_percentage`
+
+3. **Default**:
+   - If no specific percentage set, use `my_percentage` for both
+
+---
+
+## 5. SHARE LOCKING MECHANISM
+
+### 5.1 Why Locking is Critical
+
+**Problem Without Locking:**
+```
+Initial:
+  Funding = 1000
+  Exchange Balance = 300
+  PnL = -700
+  Share% = 10%
+  FinalShare = 70
+
+After Payment of 30:
+  MaskedCapital = 300
+  Funding = 1000 - 300 = 700
+  New PnL = 300 - 700 = -400
+  New FinalShare = 40  ❌ WRONG! (was 70, now 40)
+```
+
+**Solution With Locking:**
+```
+Initial:
+  LockedInitialFinalShare = 70  ✅ LOCKED
+
+After Payment of 30:
+  Remaining = 70 - 30 = 40  ✅ CORRECT
+  LockedInitialFinalShare = 70  ✅ STILL LOCKED
+```
+
+### 5.2 Locking Rules
+
+1. **Lock at First Compute**: When share is first calculated and > 0
+2. **Never Shrink**: Locked share never changes after payments
+3. **Cycle Reset**: Lock resets when:
+   - PnL sign changes (LOSS ↔ PROFIT)
+   - Funding changes (new exposure)
+   - PnL magnitude reduces significantly (trading reduced exposure)
+   - PnL becomes 0 AND share is fully settled
+
+### 5.3 Locking Implementation
+
+```python
+def lock_initial_share_if_needed(self):
+    client_pnl = self.compute_client_pnl()
     
-    # Calculate remaining
-    remaining = max(0, initial_final_share - total_settled)
-    overpaid = max(0, total_settled - initial_final_share)
-    
-    return {
-        'remaining': remaining,
-        'overpaid': overpaid,
-        'initial_final_share': initial_final_share,
-        'total_settled': total_settled
-    }
-```
-
-### Examples
-
-| Locked Share | Total Settled | Remaining | Overpaid |
-|--------------|---------------|-----------|----------|
-| 10 | 0 | 10 | 0 |
-| 10 | 5 | 5 | 0 |
-| 10 | 10 | 0 | 0 |
-| 10 | 15 | 0 | 5 |
-| 0 | 0 | 0 | 0 |
-
----
-
-## MASKEDCAPITAL FORMULA
-
-### Purpose
-
-**Maps settlement payment back to actual capital change.**
-
-When client pays share amount, we need to know how much capital to reduce.
-
-### CORRECT Formula
-
-```
-MaskedCapital = (SharePayment × |LockedInitialPnL|) ÷ LockedInitialFinalShare
-```
-
-### Why This Formula is Correct
-
-**Proportional mapping:**
-- If client pays 50% of share → reduce 50% of PnL
-- If client pays 100% of share → reduce 100% of PnL
-- Linear relationship, not exponential
-
-### Implementation
-
-```python
-# CORRECT FORMULA: MaskedCapital = (SharePayment × abs(LockedInitialPnL)) / LockedInitialFinalShare
-masked_capital = int((paid_amount * abs(locked_initial_pnl)) / initial_final_share)
-```
-
-### Examples
-
-| Share Payment | Locked PnL | Locked Share | MaskedCapital |
-|---------------|-------------|--------------|---------------|
-| 5 | -90 | 9 | (5 × 90) ÷ 9 = 50 |
-| 3 | -90 | 9 | (3 × 90) ÷ 9 = 30 |
-| 10 | +50 | 10 | (10 × 50) ÷ 10 = 50 |
-
-### WRONG Formula (DO NOT USE)
-
-```
-❌ MaskedCapital = SharePayment × SharePercentage
-```
-
-**Why this is wrong:**
-- Double-counts percentage
-- Doesn't map proportionally to PnL
-- Breaks for partial payments
-
----
-
-## EDGE CASES
-
-### 1. Zero Share Accounts
-
-**Scenario:** `FinalShare == 0`
-
-**Behavior:**
-- No pending amount shown
-- No settlement allowed
-- Client treated as settled
-- Shows "N.A" in UI
-
-**Implementation:**
-```python
-if final_share == 0:
-    show_na = True
-    # No settlement button shown
-```
-
-**This is by design, not a bug.**
-
-### 2. Very Small Percentages
-
-**Scenario:** Share percentage too small, resulting in `FinalShare = 0`
-
-**Example:**
-- PnL = 5
-- Share % = 1%
-- Exact Share = 0.05
-- Final Share = floor(0.05) = 0
-
-**Behavior:** Same as zero share accounts
-
-### 3. Partial Settlements
-
-**Scenario:** Multiple partial payments
-
-**Example:**
-- Locked Share = 10
-- Payment 1: 3 → Remaining = 7
-- Payment 2: 4 → Remaining = 3
-- Payment 3: 3 → Remaining = 0
-
-**Behavior:** Allowed, tracked individually
-
-### 4. Over-Settlement Prevention
-
-**Scenario:** User tries to pay more than remaining
-
-**Validation:**
-```python
-if paid_amount > remaining_amount:
-    raise ValidationError("Over-settlement not allowed")
-```
-
-**Behavior:** Payment blocked, error shown
-
-### 5. PnL Sign Flip During Settlement
-
-**Scenario:** PnL changes sign while settling
-
-**Example:**
-- Start: PnL = -90, Share = 9
-- Pay 5: PnL = -40, Remaining = 4
-- Exchange changes: PnL = +50, NEW CYCLE
-
-**Behavior:**
-- Old cycle closes (remaining = 4 preserved)
-- New cycle starts (remaining = 10)
-- Old settlement (5) NOT counted in new cycle
-
-### 6. Concurrent Payments
-
-**Scenario:** Multiple users try to record payment simultaneously
-
-**Protection:**
-```python
-account = ClientExchangeAccount.objects.select_for_update().get(pk=account_id)
-```
-
-**Behavior:** Database row locking prevents race conditions
-
-### 7. Negative Balance Prevention
-
-**Scenario:** Payment would make funding/exchange_balance negative
-
-**Validation:**
-```python
-if account.funding - masked_capital < 0:
-    raise ValidationError("Funding would become negative")
-```
-
-**Behavior:** Payment blocked, error shown
-
-### 8. Zero PnL After Settlement
-
-**Scenario:** Settlement brings PnL to zero
-
-**Example:**
-- Start: PnL = -90, Share = 9
-- Pay 9: PnL = 0, Share = 0
-
-**Behavior:**
-- Locked share persists (9)
-- Remaining = 0 (correct)
-- Cycle closes when fully settled
-
-### 9. Profit Percentage Change
-
-**Scenario:** Profit share % changes after profits exist
-
-**Rule:** Changes affect only **future profits**, not historical
-
-**Example:**
-- Profit 1: PnL = +100, % = 20%, Share = 20 (LOCKED)
-- Change % to 30%
-- Profit 2: PnL = +100, % = 30%, Share = 30 (NEW, LOCKED)
-
-**Behavior:** Old profit keeps old %, new profit uses new %
-
-### 10. Loss Share Percentage Immutability
-
-**Scenario:** User tries to change loss share % after data exists
-
-**Validation:**
-```python
-if has_transactions or has_settlements:
-    raise ValidationError("Loss share percentage cannot be changed after data exists")
-```
-
-**Behavior:** Change blocked, error shown
-
----
-
-## CODE IMPLEMENTATION
-
-### Model: `ClientExchangeAccount`
-
-**Location:** `core/models.py`
-
-**Key Methods:**
-
-1. **`compute_client_pnl()`**
-   - Calculates: `ExchangeBalance − Funding`
-   - Returns: BIGINT (can be negative)
-
-2. **`compute_my_share()`**
-   - Calculates: `floor(|PnL| × Share% / 100)`
-   - Returns: BIGINT (always positive)
-
-3. **`lock_initial_share_if_needed()`**
-   - Locks share at first compute or sign flip
-   - Sets `cycle_start_date`
-   - Returns: None (modifies self)
-
-4. **`get_remaining_settlement_amount()`**
-   - Calculates: `LockedShare − TotalSettled (current cycle)`
-   - Filters settlements by `cycle_start_date`
-   - Returns: dict with remaining, overpaid, etc.
-
-**Key Fields:**
-
-- `funding` (BIGINT)
-- `exchange_balance` (BIGINT)
-- `loss_share_percentage` (INT)
-- `profit_share_percentage` (INT)
-- `locked_initial_final_share` (BIGINT, nullable)
-- `locked_share_percentage` (INT, nullable)
-- `locked_initial_pnl` (BIGINT, nullable)
-- `cycle_start_date` (DateTime, nullable)
-
-### Model: `Settlement`
-
-**Location:** `core/models.py`
-
-**Fields:**
-- `client_exchange` (ForeignKey)
-- `amount` (BIGINT)
-- `date` (DateTime, auto_now_add)
-- `notes` (Text, optional)
-
-**Purpose:** Tracks individual settlement payments
-
-### View: `pending_summary`
-
-**Location:** `core/views.py` (line ~926)
-
-**Purpose:** Displays pending payments list
-
-**Logic:**
-1. Get all client exchanges
-2. For each exchange:
-   - Calculate PnL
-   - Lock share if needed
-   - Get remaining amount
-   - Add to appropriate list (clients owe / you owe)
-3. Sort by amount
-4. Render template
-
-**Key Variables:**
-- `clients_owe_list`: Clients in loss (owe you)
-- `you_owe_list`: Clients in profit (you owe)
-- `remaining_amount`: Amount still to settle
-
-### View: `record_payment`
-
-**Location:** `core/views.py` (line ~3257)
-
-**Purpose:** Records a settlement payment
-
-**Flow:**
-1. Lock account row (`select_for_update()`)
-2. Lock share if needed
-3. Get remaining amount
-4. Validate payment amount
-5. Calculate MaskedCapital
-6. Update funding/exchange_balance
-7. Create Settlement record
-8. Redirect
-
-**Validations:**
-- Final share > 0
-- Remaining > 0
-- Payment amount ≤ remaining
-- Funding/exchange_balance won't go negative
-
-### Template: `pending/summary.html`
-
-**Location:** `core/templates/core/pending/summary.html`
-
-**Displays:**
-- Two sections: "Clients Owe You" and "You Owe Clients"
-- Columns: Client, Exchange, Funding, Exchange Balance, Final Share, Remaining, Share %, Actions
-- "Record Payment" button (only if remaining > 0)
-- "Settled" label (if remaining = 0)
-- "N.A" label (if share = 0)
-
-### Template: `exchanges/account_detail.html`
-
-**Location:** `core/templates/core/exchanges/account_detail.html`
-
-**Displays:**
-- Account summary cards
-- Final Share
-- Remaining Settlement
-- Settlements History
-- "Record Payment" button (only if remaining > 0)
-
----
-
-## TESTING SCENARIOS
-
-### Scenario 1: Basic Loss Settlement
-
-**Setup:**
-- Funding: 100
-- Exchange Balance: 10
-- Loss Share %: 10%
-
-**Expected:**
-- PnL: -90
-- Final Share: 9
-- Remaining: 9
-
-**Test:**
-1. Record payment of 5
-2. Verify remaining = 4
-3. Record payment of 4
-4. Verify remaining = 0
-5. Verify "Settled" shown
-
-### Scenario 2: Basic Profit Settlement
-
-**Setup:**
-- Funding: 50
-- Exchange Balance: 100
-- Profit Share %: 20%
-
-**Expected:**
-- PnL: +50
-- Final Share: 10
-- Remaining: 10
-
-**Test:**
-1. Record payment of 10
-2. Verify remaining = 0
-3. Verify exchange_balance reduced by MaskedCapital
-
-### Scenario 3: Cycle Separation (Loss → Profit)
-
-**Setup:**
-- Step 1: Funding=100, Exchange=10, PnL=-90, Share=9
-- Step 2: Pay 5, Remaining=4
-- Step 3: Exchange=100, PnL=+50, NEW CYCLE
-
-**Expected:**
-- Step 3: Remaining = 10 (old settlement NOT counted)
-- Old cycle: Remaining = 4 (preserved but not shown)
-
-**Test:**
-1. Record payment of 5 in loss cycle
-2. Change exchange balance to 100
-3. Verify new cycle starts
-4. Verify remaining = 10 (not 5)
-5. Verify old settlement (5) NOT counted
-
-### Scenario 4: Cycle Separation (Profit → Loss)
-
-**Setup:**
-- Step 1: Funding=50, Exchange=100, PnL=+50, Share=10
-- Step 2: Pay 10, Remaining=0
-- Step 3: Exchange=20, PnL=-30, NEW CYCLE
-
-**Expected:**
-- Step 3: Remaining = 3 (old settlement NOT counted)
-
-**Test:**
-1. Record payment of 10 in profit cycle
-2. Change exchange balance to 20
-3. Verify new cycle starts
-4. Verify remaining = 3 (not -7)
-
-### Scenario 5: Zero Share Account
-
-**Setup:**
-- Funding: 100
-- Exchange Balance: 100
-- Share %: 10%
-
-**Expected:**
-- PnL: 0
-- Final Share: 0
-- Remaining: 0
-- Shows "N.A"
-
-**Test:**
-1. Verify "Record Payment" button NOT shown
-2. Verify "N.A" shown in pending list
-
-### Scenario 6: Very Small Share
-
-**Setup:**
-- Funding: 100
-- Exchange Balance: 95
-- Loss Share %: 1%
-
-**Expected:**
-- PnL: -5
-- Exact Share: 0.05
-- Final Share: 0
-- Remaining: 0
-
-**Test:**
-1. Verify "Record Payment" button NOT shown
-2. Verify "N.A" shown
-
-### Scenario 7: Over-Settlement Prevention
-
-**Setup:**
-- Funding: 100
-- Exchange Balance: 10
-- Loss Share %: 10%
-- Remaining: 9
-
-**Test:**
-1. Try to record payment of 10
-2. Verify error: "Over-settlement not allowed"
-3. Verify remaining still = 9
-
-### Scenario 8: Concurrent Payments
-
-**Setup:**
-- Two users try to record payment simultaneously
-
-**Test:**
-1. User 1: Record payment of 5
-2. User 2: Try to record payment of 5 (should see remaining = 4)
-3. Verify database locking prevents race condition
-
-### Scenario 9: Negative Balance Prevention
-
-**Setup:**
-- Funding: 50
-- Exchange Balance: 10
-- Loss Share %: 10%
-- Remaining: 9
-
-**Test:**
-1. Try to record payment that would make funding negative
-2. Verify error: "Funding would become negative"
-3. Verify funding unchanged
-
-### Scenario 10: Partial Payments
-
-**Setup:**
-- Funding: 100
-- Exchange Balance: 10
-- Loss Share %: 10%
-- Remaining: 9
-
-**Test:**
-1. Record payment of 3 → Remaining = 6
-2. Record payment of 4 → Remaining = 2
-3. Record payment of 2 → Remaining = 0
-4. Verify all payments tracked individually
-
----
-
-## FAILURE CASES AND FIXES
-
-### Failure Case 1: MaskedCapital Double-Counts Percentage
-
-**❌ Old (Wrong) Formula:**
-```
-MaskedCapital = SharePayment × SharePercentage
-```
-
-**Example:**
-- Funding = 100
-- Exchange Balance = 30
-- PnL = -70
-- Loss % = 10%
-- Share = 7
-- Payment = 3
-
-**Wrong Calculation:**
-```
-MaskedCapital = 3 × 10 = 30
-Funding = 100 - 30 = 70
-New PnL = 30 - 70 = -40
-```
-
-**Problem:** Only "looks OK" because numbers are small. Breaks for all partials, all percentages, all rounding.
-
-**✅ Correct Formula:**
-```
-MaskedCapital = (SharePayment × |LockedInitialPnL|) ÷ LockedInitialFinalShare
-```
-
-**Correct Calculation:**
-```
-MaskedCapital = (3 × 70) ÷ 7 = 30
-Funding = 100 - 30 = 70
-New PnL = 30 - 70 = -40
-```
-
-**Result:** Works for ALL partials, ALL percentages, ALL rounding.
-
-**Fix:** Implemented in `record_payment` view (line ~3396)
-
----
-
-### Failure Case 2: Settlement Shrinks Share (Without Lock)
-
-**❌ Old Dynamic System (before lock):**
-
-**Example:**
-- Initial: Funding=1000, Exchange=700, PnL=-300, Share=30
-- Client pays 30: Funding=700, Exchange=700, PnL=0, Share=0 ❌
-
-**Problem:** Share disappears because settlement changed PnL.
-
-**✅ Correct Logic (with lock):**
-- Initial: Funding=1000, Exchange=700, PnL=-300, LockedShare=30
-- Client pays 30: Funding=700, Exchange=700, PnL=0, LockedShare=30 ✅
-- Remaining = 30 - 30 = 0 ✅
-
-**Fix:** Implemented `lock_initial_share_if_needed()` method
-
----
-
-### Failure Case 3: Concurrent Payment Race Conditions
-
-**❌ Problem:**
-- User 1 reads remaining = 10
-- User 2 reads remaining = 10
-- User 1 pays 6 → remaining = 4
-- User 2 pays 6 → remaining = 4 ❌ (should be -2, but validation catches it)
-
-**✅ Fix:**
-```python
-account = ClientExchangeAccount.objects.select_for_update().get(pk=account_id)
-```
-
-**Result:** Database row locking prevents concurrent modifications.
-
-**Fix:** Implemented in `record_payment` view (line ~3275)
-
----
-
-### Failure Case 4: Old Cycle Settlements Mix with New Cycle
-
-**❌ Problem:**
-- Old cycle: Share=9, Settled=5, Remaining=4
-- New cycle starts: Share=10
-- System counts old settlement (5) → Remaining = 5 ❌ (should be 10)
-
-**✅ Fix:**
-```python
-if self.cycle_start_date:
-    total_settled = self.settlements.filter(
-        date__gte=self.cycle_start_date
-    ).aggregate(total=models.Sum('amount'))['total'] or 0
-```
-
-**Result:** Only settlements from current cycle are counted.
-
-**Fix:** Implemented in `get_remaining_settlement_amount()` method (line ~266)
-
----
-
-### Failure Case 6: Funding Change Doesn't Reset Cycle
-
-**❌ Problem:**
-- Old cycle: Funding=100, Exchange=10, PnL=-90, Share=9 (LOCKED)
-- New funding added: Funding=300, Exchange=100, PnL=-200
-- System reuses old locked share (9) → Remaining = 9 ❌ (should be 20)
-
-**Root Cause:**
-- No sign flip (both are LOSS)
-- No cycle reset triggered
-- Old locked share persists forever
-- Undercharging client
-
-**✅ Fix:**
-```python
-# CRITICAL FIX: Funding change should reset cycle (new exposure = new cycle)
-if self.locked_initial_final_share is not None:
+    # Check if cycle should reset
+    # 1. Funding change check
     if self.locked_initial_funding is not None:
         if self.funding != self.locked_initial_funding:
             # Funding changed → reset cycle
-            self.locked_initial_final_share = None
-            # ... reset all locks
-    else:
-        # Old data: Check if PnL changed significantly
-        # If PnL magnitude changed by >50%, likely funding changed
-        if pnl_diff_ratio > 1.5 or pnl_diff_ratio < 0.67:
-            # Reset cycle
-```
-
-**Result:** Funding change triggers new cycle, share recalculated correctly.
-
-**Fix:** Implemented in `lock_initial_share_if_needed()` method (line ~198)
-
----
-
-### Failure Case 7: PnL Magnitude Reduction Doesn't Reset Cycle
-
-**❌ Problem:**
-- Old cycle: Profit=+100, Share=10 (LOCKED)
-- Trading reduces profit: Profit=+1, Share=0
-- System reuses old locked share (10) → Remaining = 10 ❌ (should be 0)
-
-**Root Cause:**
-- No sign flip (both are PROFIT)
-- No funding change
-- No cycle reset triggered
-- Old locked share persists forever
-- Overcharging client
-
-**Example:**
-```
-Funding = 200
-Exchange Balance = 201
-Client PnL = +1
-Share % = 10%
-
-Expected:
-- Exact Share = 1 × 10% = 0.1
-- Final Share = floor(0.1) = 0
-- Remaining = 0
-
-Actual (before fix):
-- Locked Share = 10 (from old cycle)
-- Remaining = 10 ❌ WRONG
-```
-
-**✅ Fix:**
-```python
-# CRITICAL FIX: PnL magnitude reduction should reset cycle
-if self.locked_initial_pnl is not None and client_pnl != 0:
-    locked_pnl_abs = abs(self.locked_initial_pnl)
-    current_pnl_abs = abs(client_pnl)
+            self.reset_locks()
     
-    if current_pnl_abs < locked_pnl_abs:
-        # PnL magnitude reduced → reset cycle
-        self.locked_initial_final_share = None
-        # ... reset all locks
+    # 2. PnL magnitude reduction check
+    if self.locked_initial_pnl is not None and client_pnl != 0:
+        if abs(client_pnl) < abs(self.locked_initial_pnl):
+            # PnL magnitude reduced → reset cycle
+            self.reset_locks()
+    
+    # 3. PnL sign change check
+    if self.locked_initial_pnl is not None:
+        if (client_pnl < 0) != (self.locked_initial_pnl < 0):
+            # Sign changed → reset cycle
+            self.reset_locks()
+    
+    # Lock new share if needed
+    if self.locked_initial_final_share is None:
+        final_share = self.compute_my_share()
+        if final_share > 0:
+            # Lock it
+            self.locked_initial_final_share = final_share
+            self.locked_share_percentage = share_pct
+            self.locked_initial_pnl = client_pnl
+            self.cycle_start_date = timezone.now()
+            self.locked_initial_funding = self.funding
+            self.save()
 ```
-
-**Result:** PnL magnitude reduction triggers cycle reset, share recalculated correctly.
-
-**Fix:** Implemented in `lock_initial_share_if_needed()` method (line ~198)
 
 ---
 
-### Failure Case 5: Negative Balance After Payment
+## 6. REMAINING AMOUNT CALCULATION
 
-**❌ Problem:**
-- Funding = 50
-- Payment would reduce funding to -10
+### 6.1 Formula
 
-**✅ Fix:**
+```
+Remaining = max(0, LockedInitialFinalShare − TotalSettled)
+Overpaid = max(0, TotalSettled − LockedInitialFinalShare)
+```
+
+### 6.2 Step-by-Step Calculation
+
+```
+Step 1: Lock share if needed
+  lock_initial_share_if_needed()
+
+Step 2: Get locked share
+  IF locked_initial_final_share exists:
+    InitialFinalShare = locked_initial_final_share
+  ELSE:
+    InitialFinalShare = 0
+
+Step 3: Count settlements from current cycle
+  IF cycle_start_date exists:
+    TotalSettled = SUM(settlements WHERE date >= cycle_start_date)
+  ELSE:
+    TotalSettled = SUM(all settlements)
+
+Step 4: Calculate remaining
+  Remaining = max(0, InitialFinalShare − TotalSettled)
+  Overpaid = max(0, TotalSettled − InitialFinalShare)
+```
+
+### 6.3 Critical Rules
+
+1. **Always use locked share** - Never recalculate from current PnL
+2. **Only count current cycle settlements** - Prevents mixing old/new cycles
+3. **Remaining can be 0** - When fully settled
+4. **Overpaid can be > 0** - When settlements exceed locked share (historical overpayment)
+
+---
+
+## 7. SETTLEMENT PROCESS
+
+### 7.1 Complete Settlement Flow
+
+```
+1. User enters SharePayment amount
+
+2. System validates:
+   ✓ SharePayment > 0
+   ✓ SharePayment ≤ Remaining
+   ✓ Account is locked (row-level lock)
+   ✓ InitialFinalShare > 0
+
+3. Calculate MaskedCapital:
+   MaskedCapital = (SharePayment × abs(LockedInitialPnL)) / LockedInitialFinalShare
+
+4. Validate balances won't go negative:
+   IF Client_PnL < 0:
+       IF Funding − MaskedCapital < 0:
+           BLOCK SETTLEMENT
+   ELSE:
+       IF ExchangeBalance − MaskedCapital < 0:
+           BLOCK SETTLEMENT
+
+5. Update account balances:
+   IF Client_PnL < 0:
+       Funding = Funding − MaskedCapital
+   ELSE:
+       ExchangeBalance = ExchangeBalance − MaskedCapital
+
+6. Create Settlement record:
+   Settlement.amount = SharePayment (positive)
+   Settlement.date = NOW()
+   Settlement.client_exchange = account
+
+7. Create Transaction record (RECORD_PAYMENT):
+   IF Client_PnL < 0:
+       Transaction.amount = +SharePayment (client paid you)
+   ELSE:
+       Transaction.amount = −SharePayment (you paid client)
+   Transaction.type = 'RECORD_PAYMENT'
+   Transaction.date = NOW()
+```
+
+### 7.2 Database Row Locking
+
+**Critical for Concurrency:**
+
 ```python
-if account.funding - masked_capital < 0:
-    raise ValidationError("Funding would become negative")
+with transaction.atomic():
+    # Lock account row
+    account = ClientExchangeAccount.objects.select_for_update().get(pk=account_id)
+    
+    # Get remaining amount (with lock)
+    remaining = account.get_remaining_settlement_amount()['remaining']
+    
+    # Validate
+    if paid_amount > remaining:
+        raise ValidationError("Cannot exceed remaining")
+    
+    # Process payment
+    # ... (rest of settlement logic)
 ```
 
-**Result:** Payment blocked before balance goes negative.
-
-**Fix:** Implemented in `record_payment` view (line ~3402)
+**Why:** Prevents race conditions where multiple admins could over-settle simultaneously.
 
 ---
 
-## SUMMARY
+## 8. MASKED CAPITAL CALCULATION
 
-### Key Formulas
+### 8.1 Formula Derivation
 
-1. **PnL:** `Client_PnL = ExchangeBalance − Funding`
-2. **Exact Share:** `ExactShare = |PnL| × (Share% / 100)`
-3. **Final Share:** `FinalShare = floor(ExactShare)`
-4. **Remaining:** `Remaining = LockedInitialFinalShare − TotalSettled (Current Cycle)`
-5. **MaskedCapital:** `MaskedCapital = (SharePayment × |LockedInitialPnL|) ÷ LockedInitialFinalShare`
+**Problem:** How to map SharePayment back to actual capital reduction?
 
-### Key Rules
+**Solution:** Linear mapping using locked values
 
-1. **Shares are locked** at first compute per PnL cycle
-2. **Cycles reset** when PnL sign changes (LOSS ↔ PROFIT)
-3. **Old cycle settlements** never mix with new cycle shares
-4. **Remaining uses locked share**, not current share
-5. **MaskedCapital maps proportionally** to PnL
+```
+MaskedCapital = (SharePayment × abs(LockedInitialPnL)) / LockedInitialFinalShare
+```
 
-### System Guarantees
+**Why This Works:**
 
-- ✅ Deterministic math
-- ✅ No rounding drift
-- ✅ Ledger stability
-- ✅ Safe manual control
-- ✅ Support for changing profit %
-- ✅ No historical corruption
-- ✅ Cycle separation
-- ✅ Concurrency safety
+```
+Initial State:
+  LockedInitialPnL = -1000
+  LockedInitialFinalShare = 100 (10% of 1000)
+  Ratio: 1000 / 100 = 10 (each share unit = 10 capital units)
+
+Payment:
+  SharePayment = 50
+  MaskedCapital = (50 × 1000) / 100 = 500 ✅
+  
+Verification:
+  50 share units × 10 ratio = 500 capital units ✅
+```
+
+### 8.2 Key Properties
+
+1. **Linear Mapping**: SharePayment maps linearly to capital (not exponential)
+2. **Uses Locked Values**: Based on initial state, not current state
+3. **Prevents Double-Counting**: Share percentage is only applied once
+4. **Proportional Reduction**: Exposure reduces proportionally to share payment
 
 ---
 
-**END OF DOCUMENTATION**
+## 9. SIGN LOGIC AND FINANCIAL INTERPRETATION
+
+### 9.1 FINAL SIGN LOGIC (THE LAW)
+
+**Always from YOUR point of view:**
+
+| Who Paid Whom | Reality | Amount Shown |
+|---------------|---------|--------------|
+| Client paid YOU | Your profit | **+X (POSITIVE)** |
+| YOU paid client | Your loss | **-X (NEGATIVE)** |
+
+**Rules:**
+- ✅ Positive amount = money came to you
+- ✅ Negative amount = money went from you
+- ❌ Minus NEVER means "client paid"
+- ❌ Minus ALWAYS means "you paid"
+
+### 9.2 Application to RECORD_PAYMENT
+
+```python
+# When creating RECORD_PAYMENT transaction:
+
+if client_pnl < 0:
+    # LOSS CASE: Client pays YOU → amount is POSITIVE
+    transaction_amount = +paid_amount
+else:
+    # PROFIT CASE: YOU pay client → amount is NEGATIVE
+    transaction_amount = -paid_amount
+
+Transaction.objects.create(
+    type='RECORD_PAYMENT',
+    amount=transaction_amount,  # Signed correctly
+    ...
+)
+```
+
+### 9.3 Application to Remaining Amounts
+
+**In Pending Payments Display:**
+
+```
+IF Client_PnL < 0 (LOSS):
+    Remaining = +share_amount  ✅ POSITIVE (they owe you)
+
+IF Client_PnL > 0 (PROFIT):
+    Remaining = -share_amount  ✅ NEGATIVE (you owe them)
+```
+
+**Implementation:**
+```python
+if client_pnl < 0:
+    remaining_amount = remaining_amount  # Positive
+else:
+    remaining_amount = -remaining_amount  # Negative
+```
+
+### 9.4 Sanity Check
+
+```
+Your Total Profit + Client Net Result = 0
+
+Where:
+  Your Total Profit = SUM(RECORD_PAYMENT.amount)
+  Client Net Result = -SUM(RECORD_PAYMENT.amount)
+
+Example:
+  Your Total Profit = +9 - 19 - 19 = -29
+  Client Net Result = -(-29) = +29
+  Total = -29 + 29 = 0 ✅
+```
+
+---
+
+## 10. DISPLAY RULES
+
+### 10.1 Pending List Display
+
+**Rule:** Client MUST always appear in pending list
+
+**Display Logic:**
+
+```
+IF FinalShare == 0:
+    Show "N.A" for:
+      - Client PnL
+      - My Share
+      - Remaining
+    Disable payment button
+ELSE:
+    Show actual values
+    Enable payment button if Remaining > 0
+```
+
+### 10.2 Section Categorization
+
+**"Clients Owe You" Section:**
+- `Client_PnL < 0` (LOSS)
+- `Remaining` is **POSITIVE** (green)
+- Client pays you
+
+**"You Owe Clients" Section:**
+- `Client_PnL > 0` (PROFIT)
+- `Remaining` is **NEGATIVE** (red)
+- You pay client
+
+**Neutral Case:**
+- `Client_PnL == 0`
+- Show in "Clients Owe You" with N.A
+- No payment allowed
+
+### 10.3 Color Coding
+
+- **Green (Positive)**: Money coming to you (clients owe you)
+- **Red (Negative)**: Money going from you (you owe clients)
+- **Gray (N.A)**: Not applicable (zero share)
+
+---
+
+## 11. CYCLE MANAGEMENT
+
+### 11.1 What is a Cycle?
+
+A **PnL Cycle** is a period where:
+- PnL sign remains constant (all LOSS or all PROFIT)
+- Share is locked at first compute
+- Settlements are tracked within this cycle
+
+### 11.2 Cycle Reset Conditions
+
+A new cycle starts when:
+
+1. **PnL Sign Changes:**
+   ```
+   OLD: Client_PnL = -500 (LOSS)
+   NEW: Client_PnL = +300 (PROFIT)
+   → NEW CYCLE
+   ```
+
+2. **Funding Changes:**
+   ```
+   OLD: Funding = 1000
+   NEW: Funding = 1500
+   → NEW CYCLE (new exposure)
+   ```
+
+3. **PnL Magnitude Reduces Significantly:**
+   ```
+   OLD: |Client_PnL| = 1000
+   NEW: |Client_PnL| = 500
+   → NEW CYCLE (trading reduced exposure)
+   ```
+
+4. **PnL Becomes 0 AND Share Fully Settled:**
+   ```
+   Client_PnL = 0
+   AND Remaining = 0
+   → NEW CYCLE (can start fresh)
+   ```
+
+### 11.3 Cycle Tracking
+
+```python
+# When cycle starts:
+cycle_start_date = timezone.now()
+locked_initial_funding = self.funding
+
+# When counting settlements:
+if self.cycle_start_date:
+    settlements = self.settlements.filter(date__gte=self.cycle_start_date)
+else:
+    settlements = self.settlements.all()
+```
+
+---
+
+## 12. EDGE CASES AND VALIDATIONS
+
+### 12.1 Zero Share (N.A Case)
+
+**Condition:** `FinalShare == 0`
+
+**Causes:**
+- Very small PnL (e.g., PnL = 2, Share% = 10% → ExactShare = 0.2 → FinalShare = 0)
+- Floor rounding to zero
+
+**Behavior:**
+- Client appears in pending list
+- All values show "N.A"
+- Payment button disabled
+- No settlement allowed
+
+### 12.2 Overpayment
+
+**Condition:** `TotalSettled > LockedInitialFinalShare`
+
+**Handling:**
+```
+Overpaid = max(0, TotalSettled - LockedInitialFinalShare)
+Remaining = max(0, LockedInitialFinalShare - TotalSettled)
+```
+
+**Display:**
+- `Remaining` shows as 0
+- `Overpaid` amount is tracked (for audit)
+- Historical overpayments are preserved
+
+### 12.3 Negative Balance Prevention
+
+**Validation Before Settlement:**
+
+```python
+if client_pnl < 0:
+    if account.funding - masked_capital < 0:
+        raise ValidationError("Funding cannot go negative")
+else:
+    if account.exchange_balance - masked_capital < 0:
+        raise ValidationError("Exchange balance cannot go negative")
+```
+
+### 12.4 Concurrent Payment Prevention
+
+**Database Row Locking:**
+
+```python
+with transaction.atomic():
+    account = ClientExchangeAccount.objects.select_for_update().get(pk=account_id)
+    # ... validate and process payment
+```
+
+**Why:** Prevents two admins from over-settling simultaneously.
+
+### 12.5 PnL = 0 Handling
+
+**When PnL = 0:**
+- Client appears in pending list with N.A
+- No settlement allowed
+- Locked share persists if not fully settled
+- Locked share resets if fully settled
+
+---
+
+## 13. COMPLETE EXAMPLES
+
+### Example 1: Loss Case (Client Pays You)
+
+**Initial State:**
+```
+Funding = 1000
+Exchange Balance = 300
+Client_PnL = 300 - 1000 = -700 (LOSS)
+Loss Share% = 10%
+```
+
+**Share Calculation:**
+```
+ExactShare = 700 × 10% = 70.0
+FinalShare = floor(70.0) = 70
+LockedInitialFinalShare = 70 ✅ LOCKED
+```
+
+**Payment 1:**
+```
+SharePayment = 30
+MaskedCapital = (30 × 700) / 70 = 300
+
+New Funding = 1000 - 300 = 700
+New Exchange Balance = 300 (unchanged)
+New PnL = 300 - 700 = -400
+
+Remaining = 70 - 30 = 40 ✅
+LockedInitialFinalShare = 70 ✅ (still locked)
+
+Transaction.amount = +30 ✅ (client paid you)
+```
+
+**Payment 2:**
+```
+SharePayment = 40
+MaskedCapital = (40 × 700) / 70 = 400
+
+New Funding = 700 - 400 = 300
+New Exchange Balance = 300 (unchanged)
+New PnL = 300 - 300 = 0
+
+Remaining = 70 - 70 = 0 ✅
+LockedInitialFinalShare = 70 ✅ (still locked)
+
+Transaction.amount = +40 ✅ (client paid you)
+```
+
+**Final:**
+```
+Total Settled = 70
+Remaining = 0
+Overpaid = 0
+PnL = 0 (settled)
+```
+
+---
+
+### Example 2: Profit Case (You Pay Client)
+
+**Initial State:**
+```
+Funding = 500
+Exchange Balance = 1200
+Client_PnL = 1200 - 500 = +700 (PROFIT)
+Profit Share% = 15%
+```
+
+**Share Calculation:**
+```
+ExactShare = 700 × 15% = 105.0
+FinalShare = floor(105.0) = 105
+LockedInitialFinalShare = 105 ✅ LOCKED
+```
+
+**Payment 1:**
+```
+SharePayment = 50
+MaskedCapital = (50 × 700) / 105 = 333.33 → 333
+
+New Exchange Balance = 1200 - 333 = 867
+New Funding = 500 (unchanged)
+New PnL = 867 - 500 = 367
+
+Remaining = 105 - 50 = 55 ✅
+LockedInitialFinalShare = 105 ✅ (still locked)
+
+Transaction.amount = -50 ✅ (you paid client)
+```
+
+**Payment 2:**
+```
+SharePayment = 55
+MaskedCapital = (55 × 700) / 105 = 366.67 → 366
+
+New Exchange Balance = 867 - 366 = 501
+New Funding = 500 (unchanged)
+New PnL = 501 - 500 = 1
+
+Remaining = 105 - 105 = 0 ✅
+LockedInitialFinalShare = 105 ✅ (still locked)
+
+Transaction.amount = -55 ✅ (you paid client)
+```
+
+**Final:**
+```
+Total Settled = 105
+Remaining = 0
+Overpaid = 0
+PnL = 1 (nearly settled)
+```
+
+---
+
+### Example 3: Zero Share (N.A Case)
+
+**Initial State:**
+```
+Funding = 100
+Exchange Balance = 98
+Client_PnL = 98 - 100 = -2 (LOSS)
+Loss Share% = 10%
+```
+
+**Share Calculation:**
+```
+ExactShare = 2 × 10% = 0.2
+FinalShare = floor(0.2) = 0 ❌
+```
+
+**Display:**
+```
+Client PnL: N.A
+My Share: N.A
+Remaining: N.A
+Payment Button: Disabled
+```
+
+---
+
+### Example 4: Overpayment
+
+**Initial State:**
+```
+LockedInitialFinalShare = 100
+Total Settled = 120
+```
+
+**Calculation:**
+```
+Remaining = max(0, 100 - 120) = 0
+Overpaid = max(0, 120 - 100) = 20 ✅
+```
+
+**Display:**
+```
+Remaining: 0
+Overpaid: 20 (tracked for audit)
+```
+
+---
+
+## 14. DATABASE SCHEMA
+
+### 14.1 ClientExchangeAccount Model
+
+```python
+class ClientExchangeAccount(models.Model):
+    client = ForeignKey(Client)
+    exchange = ForeignKey(Exchange)
+    funding = DecimalField()
+    exchange_balance = DecimalField()
+    my_percentage = IntegerField()
+    loss_share_percentage = IntegerField(null=True)
+    profit_share_percentage = IntegerField(null=True)
+    
+    # Locking fields
+    locked_initial_final_share = IntegerField(null=True)
+    locked_share_percentage = IntegerField(null=True)
+    locked_initial_pnl = DecimalField(null=True)
+    locked_initial_funding = DecimalField(null=True)
+    cycle_start_date = DateTimeField(null=True)
+```
+
+### 14.2 Settlement Model
+
+```python
+class Settlement(models.Model):
+    client_exchange = ForeignKey(ClientExchangeAccount)
+    amount = IntegerField()  # Share payment (always positive)
+    date = DateTimeField()
+    notes = TextField()
+```
+
+### 14.3 Transaction Model (RECORD_PAYMENT)
+
+```python
+class Transaction(models.Model):
+    client_exchange = ForeignKey(ClientExchangeAccount)
+    type = CharField()  # 'RECORD_PAYMENT'
+    amount = DecimalField()  # Signed: +X or -X
+    date = DateTimeField()
+    exchange_balance_after = DecimalField()
+    notes = TextField()
+```
+
+---
+
+## 15. API REFERENCE
+
+### 15.1 Methods
+
+#### `compute_client_pnl()`
+
+**Returns:** `Decimal` (can be negative)
+
+**Formula:**
+```python
+return self.exchange_balance - self.funding
+```
+
+---
+
+#### `compute_my_share()`
+
+**Returns:** `int` (always positive, floor rounded)
+
+**Formula:**
+```python
+client_pnl = self.compute_client_pnl()
+if client_pnl == 0:
+    return 0
+
+# Determine share percentage
+if client_pnl < 0:
+    share_pct = self.loss_share_percentage or self.my_percentage
+else:
+    share_pct = self.profit_share_percentage or self.my_percentage
+
+# Calculate and floor round
+exact_share = abs(client_pnl) * (share_pct / 100.0)
+return int(math.floor(exact_share))
+```
+
+---
+
+#### `lock_initial_share_if_needed()`
+
+**Purpose:** Lock share at first compute per PnL cycle
+
+**Behavior:**
+- Locks share if not already locked
+- Resets lock if cycle conditions change
+- Tracks cycle start date and initial funding
+
+---
+
+#### `get_remaining_settlement_amount()`
+
+**Returns:** `dict` with:
+- `remaining`: `int` - Remaining share to settle
+- `overpaid`: `int` - Overpaid amount (if any)
+- `initial_final_share`: `int` - Locked initial share
+- `total_settled`: `int` - Total settled in current cycle
+
+**Formula:**
+```python
+remaining = max(0, locked_initial_final_share - total_settled)
+overpaid = max(0, total_settled - locked_initial_final_share)
+```
+
+---
+
+## 16. SUMMARY OF KEY RULES
+
+### 16.1 Golden Rules
+
+1. **Share is locked at first compute** - Never shrinks after payments
+2. **Clients always appear in pending list** - Even with N.A when not applicable
+3. **Sign convention is absolute** - +X = client paid you, -X = you paid client
+4. **Settlements reduce exposure** - Using masked capital calculation
+5. **Cycles separate settlements** - Old cycle settlements don't mix with new cycle shares
+
+### 16.2 Critical Formulas
+
+```
+Client_PnL = ExchangeBalance − Funding
+FinalShare = floor(|Client_PnL| × Share% / 100)
+Remaining = LockedInitialFinalShare − Sum(Settlements)
+MaskedCapital = (SharePayment × abs(LockedInitialPnL)) / LockedInitialFinalShare
+```
+
+### 16.3 Validation Rules
+
+1. SharePayment > 0
+2. SharePayment ≤ Remaining
+3. Funding ≥ 0 (after settlement)
+4. ExchangeBalance ≥ 0 (after settlement)
+5. InitialFinalShare > 0 (to allow settlement)
+
+---
+
+## END OF DOCUMENTATION
+
+**Version:** FINAL  
+**Status:** Approved & Frozen  
+**Last Updated:** 2026-01-09
+
+This document contains all formulas, logic, and rules for the Pending Payments System. Every calculation, validation, and display rule is documented above.
+
