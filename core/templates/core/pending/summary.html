@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}
+{% load math_filters %}
 
 {% block title %}Pending Payments · Transaction Hub{% endblock %}
 {% block page_title %}Pending Payments{% endblock %}
@@ -43,13 +44,13 @@
 <div class="card-grid" style="margin-bottom: 24px;">
     <div class="card">
         <div class="card-title">Total Clients Owe</div>
-        <div class="card-value negative">{{ total_clients_owe|floatformat:0 }}</div>
-        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Remaining to settle: {{ total_my_share_clients_owe|floatformat:0 }}</div>
+        <div class="card-value negative">{{ total_clients_owe|currency_inr }}</div>
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Remaining to settle: {{ total_my_share_clients_owe|currency_inr }}</div>
         </div>
     <div class="card">
         <div class="card-title">Total You Owe</div>
-        <div class="card-value negative">{{ total_you_owe|floatformat:0 }}</div>
-        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Remaining to settle: {{ total_my_share_you_owe|floatformat:0 }}</div>
+        <div class="card-value negative">{{ total_you_owe|currency_inr }}</div>
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Remaining to settle: {{ total_my_share_you_owe|currency_inr }}</div>
     </div>
         </div>
 
@@ -59,7 +60,7 @@
         <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">Clients Owe You</h3>
         <p style="color: var(--muted); margin-bottom: 16px;">
             These clients are in LOSS. They owe you settlement amounts.
-            Remaining to settle: {{ total_my_share_clients_owe|floatformat:0 }}.
+            Remaining to settle: {{ total_my_share_clients_owe|currency_inr }}.
         </p>
         
         {% if clients_owe_you %}
@@ -68,13 +69,13 @@
             <thead>
             <tr>
                 <th>Client</th>
-                <th>Code</th>
-                <th>Exchange</th>
-                <th>Funding</th>
-                <th>Exchange Balance</th>
-                <th>Client PnL</th>
-                <th>Remaining</th>
-                <th>Share %</th>
+                <th>U_CODE</th>
+                <th>Master</th>
+                <th>OPENING POINTS</th>
+                <th>AVL.POINTS(CLOSING POINTS)</th>
+                <th>PROFIT(+)/LOSS(-)</th>
+                <th>MY SHARE</th>
+                <th>MY%</th>
                 <th>Actions</th>
             </tr>
             </thead>
@@ -94,20 +95,20 @@
                         {% endif %}
                     </td>
                     <td>{{ item.exchange.name }}{% if item.exchange.code %} ({{ item.exchange.code }}){% endif %}</td>
-                    <td>{{ item.account.funding|floatformat:0 }}</td>
-                    <td>{{ item.account.exchange_balance|floatformat:0 }}</td>
+                    <td>{{ item.account.funding|currency_inr }}</td>
+                    <td>{{ item.account.exchange_balance|currency_inr }}</td>
                     <td>
                         {% if item.show_na %}
                             <span style="color: var(--muted);">N.A</span>
                         {% else %}
-                            <span class="negative">{{ item.client_pnl|floatformat:0 }}</span>
+                            <span class="negative">{{ item.client_pnl|currency_inr }}</span>
                         {% endif %}
                     </td>
                     <td>
                         {% if item.show_na %}
                             <span style="color: var(--muted);">N.A</span>
-                        {% else %}
-                            <strong style="color: var(--accent);">{{ item.remaining_amount|floatformat:0 }}</strong>
+                            {% else %}
+                            <strong style="color: var(--accent);">{{ item.remaining_amount|currency_inr }}</strong>
                         {% endif %}
                     </td>
                     <td>{{ item.share_percentage }}%</td>
@@ -141,7 +142,7 @@
         <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">You Owe Clients</h3>
         <p style="color: var(--muted); margin-bottom: 16px;">
             These clients are in PROFIT. You owe them settlement amounts.
-            Remaining to settle: {{ total_my_share_you_owe|floatformat:0 }}.
+            Remaining to settle: {{ total_my_share_you_owe|currency_inr }}.
         </p>
         
         {% if you_owe_clients %}
@@ -150,13 +151,13 @@
             <thead>
             <tr>
                 <th>Client</th>
-                <th>Code</th>
-                <th>Exchange</th>
-                <th>Funding</th>
-                <th>Exchange Balance</th>
-                <th>Client PnL</th>
-                <th>Remaining</th>
-                <th>Share %</th>
+                <th>U_CODE</th>
+                <th>Master</th>
+                <th>OPENING POINTS</th>
+                <th>AVL.POINTS(CLOSING POINTS)</th>
+                <th>PROFIT(+)/LOSS(-)</th>
+                <th>MY SHARE</th>
+                <th>MY%</th>
                 <th>Actions</th>
             </tr>
             </thead>
@@ -176,20 +177,20 @@
                         {% endif %}
                     </td>
                     <td>{{ item.exchange.name }}{% if item.exchange.code %} ({{ item.exchange.code }}){% endif %}</td>
-                    <td>{{ item.account.funding|floatformat:0 }}</td>
-                    <td>{{ item.account.exchange_balance|floatformat:0 }}</td>
+                    <td>{{ item.account.funding|currency_inr }}</td>
+                    <td>{{ item.account.exchange_balance|currency_inr }}</td>
                     <td>
                         {% if item.show_na %}
                             <span style="color: var(--muted);">N.A</span>
                         {% else %}
-                            <span class="positive">{{ item.client_pnl|floatformat:0 }}</span>
+                            <span class="positive">{{ item.client_pnl|currency_inr }}</span>
                         {% endif %}
                     </td>
                     <td>
                         {% if item.show_na %}
                             <span style="color: var(--muted);">N.A</span>
                             {% else %}
-                            <strong style="color: var(--danger);">{{ item.remaining_amount|floatformat:0 }}</strong>
+                            <strong style="color: var(--danger);">{{ item.remaining_amount|currency_inr }}</strong>
                         {% endif %}
                     </td>
                     <td>{{ item.share_percentage }}%</td>

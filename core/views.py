@@ -2031,31 +2031,23 @@ def export_pending_csv(request):
     
     writer = csv.writer(response)
     
-    # Get today's date for first row
-    today_date = date.today().strftime('%Y-%m-%d')
-    
-    # Write header row - Date column first, then matching table column order: Client, Code, Exchange, Funding, Exchange Balance, Client PnL, Remaining, Share %
+    # Write header row - Matching table column order: Client, U_CODE, Master, OPENING POINTS, AVL.POINTS(CLOSING POINTS), PROFIT(+)/LOSS(-), MY SHARE, MY%
     headers = [
-        'Date',
         'Client',
-        'Code',
-        'Exchange',
-        'Funding',
-        'Exchange Balance',
-        'Client PnL',
-        'Remaining',
-        'Share %'
+        'U_CODE',
+        'Master',
+        'OPENING POINTS',
+        'AVL.POINTS(CLOSING POINTS)',
+        'PROFIT(+)/LOSS(-)',
+        'MY SHARE',
+        'MY%'
     ]
-    writer.writerow([h.upper() for h in headers])
-    
-    # Track if this is the first data row
-    is_first_row = True
+    writer.writerow(headers)
     
     # Write Clients Owe You section (if requested)
     if section in ["all", "clients-owe"]:
         for item in clients_owe_list:
             row_data = [
-                today_date if is_first_row else '',  # Date only in first row
                 item["client"].name or '',
                 item["client"].code or '',
                 item["exchange"].name or '',
@@ -2066,13 +2058,11 @@ def export_pending_csv(request):
                 item.get("share_percentage", item["account"].my_percentage)
             ]
             writer.writerow(row_data)
-            is_first_row = False  # After first row, date column will be empty
     
     # Write You Owe Clients section (if requested)
     if section in ["all", "you-owe"]:
         for item in you_owe_list:
             row_data = [
-                today_date if is_first_row else '',  # Date only in first row
                 item["client"].name or '',
                 item["client"].code or '',
                 item["exchange"].name or '',
@@ -2083,7 +2073,6 @@ def export_pending_csv(request):
                 item.get("share_percentage", item["account"].my_percentage)
             ]
             writer.writerow(row_data)
-            is_first_row = False  # After first row, date column will be empty
     
     return response
 
@@ -2240,17 +2229,57 @@ def report_overview(request):
     ) or 0
     
     # 📘 YOUR TOTAL PROFIT Calculation (CORRECTNESS LOGIC)
+    # 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 1️⃣ CORE RULE (DO NOT BREAK THIS)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Record Payment = Profit or Loss Event
+    #
+    # Who pays          Meaning                      Effect on YOU
+    # ──────────────────────────────────────────────────────────────────────────
+    # Client → You      Client loss settlement       ✅ Your PROFIT  (+X)
+    # You → Client      Client profit settlement     ❌ Your LOSS    (-X)
+    #
+    # SIGN CONVENTION (SINGLE SOURCE OF TRUTH):
+    #   +X = Client paid YOU (Client loss)  → Your PROFIT
+    #   -X = YOU paid client (Client profit) → Your LOSS
+    #
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 2️⃣ SHARE SPLIT LOGIC (YOUR + FRIEND)
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Configuration:
+    #   My Total % = 10%
+    #   Friend % = 4%
+    #   My Own % = 6%
+    #
+    # ✔ Validation: Friend % + My Own % = My Total %
+    #
+    # Split Formula:
+    #   My Profit = Payment Amount × (My Own % / My Total %)
+    #   Friend Profit = Payment Amount × (Friend % / My Total %)
+    #
+    # Example: Payment = +9 (Client loss, your profit)
+    #   My Profit = 9 × 6 / 10 = 5.4
+    #   Friend Profit = 9 × 4 / 10 = 3.6
+    #   Verification: 5.4 + 3.6 = 9 ✓
+    #
+    # Example: Payment = -5 (Client profit, your loss)
+    #   My Profit = -5 × 6 / 10 = -3.0
+    #   Friend Profit = -5 × 4 / 10 = -2.0
+    #   Verification: -3.0 + (-2.0) = -5 ✓
+    # ═══════════════════════════════════════════════════════════════════════════
+    #
     # SINGLE SOURCE OF TRUTH: RECORD_PAYMENT transactions only
-    # Sign convention: +X = Client paid YOU, -X = YOU paid client
     # No PnL checks, no locked_initial_pnl checks, no fallback logic needed
     from decimal import Decimal
     from django.utils import timezone
     from datetime import datetime
     
     # Get all RECORD_PAYMENT transactions for user
+    # Also include SETTLEMENT_SHARE for backward compatibility (old transactions)
     payment_qs = Transaction.objects.filter(
         client_exchange__client__user=request.user,
-        type='RECORD_PAYMENT'
+        type__in=['RECORD_PAYMENT', 'SETTLEMENT_SHARE']
     )
     
     # Apply client filter (if specified)
@@ -2313,8 +2342,11 @@ def report_overview(request):
     )
     
     for tx in payment_transactions:
-        # Payment amount IS the signed amount (sign is absolute truth)
-        # +X = client paid me, -X = I paid client
+        # ═══════════════════════════════════════════════════════════════════
+        # CORE RULE: Payment amount IS the signed amount (sign is absolute truth)
+        #   +X = Client paid YOU (Client loss settlement) → Your PROFIT
+        #   -X = YOU paid client (Client profit settlement) → Your LOSS
+        # ═══════════════════════════════════════════════════════════════════
         payment_amount = Decimal(str(tx.amount))  # Can be positive or negative
         
         account = tx.client_exchange
@@ -2325,7 +2357,10 @@ def report_overview(request):
         if my_total_pct == 0:
             continue
         
-        # Get split percentages from ClientExchangeReportConfig
+        # ═══════════════════════════════════════════════════════════════════
+        # SHARE SPLIT LOGIC: Split payment between My Own % and Friend %
+        # Validation: Friend % + My Own % = My Total %
+        # ═══════════════════════════════════════════════════════════════════
         report_config = getattr(account, 'report_config', None)
         
         if report_config:
@@ -2333,15 +2368,18 @@ def report_overview(request):
             friend_pct = Decimal(str(report_config.friend_percentage))
             
             # Split payment amount directly (works for both +ve and -ve)
-            # Example: payment=+9, my_percentage=10, my_own_percentage=6, friend_percentage=4
-            # my_profit = 9 × 6 / 10 = 5.4
-            # friend_profit = 9 × 4 / 10 = 3.6
-            # Verification: 5.4 + 3.6 = 9 ✓
+            # Formula: My Profit = Payment × (My Own % / My Total %)
+            #         Friend Profit = Payment × (Friend % / My Total %)
             #
-            # Example: payment=-5, my_percentage=10, my_own_percentage=6, friend_percentage=4
-            # my_profit = -5 × 6 / 10 = -3.0
-            # friend_profit = -5 × 4 / 10 = -2.0
-            # Verification: -3.0 + (-2.0) = -5 ✓
+            # Example: Payment = +9 (Client loss, your profit)
+            #   My Profit = 9 × 6 / 10 = 5.4
+            #   Friend Profit = 9 × 4 / 10 = 3.6
+            #   Verification: 5.4 + 3.6 = 9 ✓
+            #
+            # Example: Payment = -5 (Client profit, your loss)
+            #   My Profit = -5 × 6 / 10 = -3.0
+            #   Friend Profit = -5 × 4 / 10 = -2.0
+            #   Verification: -3.0 + (-2.0) = -5 ✓
             my_profit_part = payment_amount * my_own_pct / my_total_pct
             friend_profit_part = payment_amount * friend_pct / my_total_pct
         else:
@@ -2565,6 +2603,38 @@ def report_overview(request):
     # Time travel data
     time_travel_transactions = base_qs.select_related("client_exchange", "client_exchange__client", "client_exchange__exchange").order_by("-date", "-created_at")[:50]
     
+    # Convert Decimal/float values to integers for proper formatting
+    # Ensure all values are integers to avoid float formatting issues
+    try:
+        total_turnover_int = int(round(float(total_turnover or 0)))
+    except (ValueError, TypeError):
+        total_turnover_int = 0
+    
+    try:
+        your_total_profit_int = int(round(float(your_total_profit or 0)))
+    except (ValueError, TypeError):
+        your_total_profit_int = 0
+    
+    try:
+        your_total_income_int = int(round(float(your_total_income_from_clients or 0)))
+    except (ValueError, TypeError):
+        your_total_income_int = 0
+    
+    try:
+        your_total_paid_int = int(round(float(your_total_paid_to_clients or 0)))
+    except (ValueError, TypeError):
+        your_total_paid_int = 0
+    
+    try:
+        my_profit_int = int(round(float(my_profit_total or 0)))
+    except (ValueError, TypeError):
+        my_profit_int = 0
+    
+    try:
+        friend_profit_int = int(round(float(friend_profit_total or 0)))
+    except (ValueError, TypeError):
+        friend_profit_int = 0
+    
     context = {
         "report_type": report_type,
         "client_type_filter": client_type_filter,
@@ -2574,12 +2644,12 @@ def report_overview(request):
         "selected_client_id": int(client_id) if client_id else None,
         "selected_exchange_id": int(exchange_id) if exchange_id else None,
         "today": today,
-        "total_turnover": total_turnover,
-        "your_total_profit": your_total_profit,
-        "your_total_income_from_clients": your_total_income_from_clients,
-        "your_total_paid_to_clients": your_total_paid_to_clients,
-        "my_profit": my_profit_total,
-        "friend_profit": friend_profit_total,
+        "total_turnover": total_turnover_int,
+        "your_total_profit": your_total_profit_int,
+        "your_total_income_from_clients": your_total_income_int,
+        "your_total_paid_to_clients": your_total_paid_int,
+        "my_profit": my_profit_int,
+        "friend_profit": friend_profit_int,
         "company_profit": company_profit,  # Kept for backward compatibility, always 0
         "daily_labels": json.dumps(date_labels),
         "daily_profit": json.dumps(profit_data),
@@ -2932,12 +3002,14 @@ def client_exchange_edit(request, pk):
     can_edit_exchange = days_since_creation <= 10
     
     if request.method == "POST":
-        # All clients are now my clients, company share is always 0
-        company_share = Decimal("0")
-        my_share = Decimal(request.POST.get("my_share_pct", "0"))
+        # Get percentage values from form
+        my_percentage = request.POST.get("my_percentage", "").strip()
+        loss_share_percentage = request.POST.get("loss_share_percentage", "").strip()
+        profit_share_percentage = request.POST.get("profit_share_percentage", "").strip()
+        friend_percentage = request.POST.get("friend_percentage", "").strip()
+        my_own_percentage = request.POST.get("my_own_percentage", "").strip()
         
         # Update exchange if within 10 days and exchange was provided
-        # Double-check can_edit_exchange to prevent manipulation
         new_exchange_id = request.POST.get("exchange")
         if can_edit_exchange and new_exchange_id:
             new_exchange = get_object_or_404(Exchange, pk=new_exchange_id)
@@ -2949,23 +3021,17 @@ def client_exchange_edit(request, pk):
             ).exclude(pk=client_exchange.pk).first()
             
             if existing:
+                exchanges = Exchange.objects.all().order_by("name")
                 days_remaining = (10 - days_since_creation) if can_edit_exchange else 0
                 client_type = "company" if False else "my"
                 
                 return render(request, "core/exchanges/edit_client_link.html", {
-
                     "client_exchange": client_exchange,
-
                     "exchanges": exchanges,
-
                     "can_edit_exchange": can_edit_exchange,
-
                     "days_since_creation": days_since_creation,
-
                     "days_remaining": days_remaining,
-
                     "client_type": client_type,
-
                     "error": f"This client already has a link to {new_exchange.name}. Please edit that link instead.",
                 })
             
@@ -2977,35 +3043,95 @@ def client_exchange_edit(request, pk):
             client_type = "company" if False else "my"
             
             return render(request, "core/exchanges/edit_client_link.html", {
-
                 "client_exchange": client_exchange,
-
                 "exchanges": exchanges,
-
                 "can_edit_exchange": can_edit_exchange,
-
                 "days_since_creation": days_since_creation,
-
                 "days_remaining": days_remaining,
-
                 "client_type": client_type,
-
                 "error": "Exchange cannot be modified after 10 days from creation.",
-
             })
 
+        # Update percentages
+        if my_percentage:
+            try:
+                my_pct = int(my_percentage)
+                if 0 <= my_pct <= 100:
+                    client_exchange.my_percentage = my_pct
+            except ValueError:
+                pass
         
-        client_exchange.my_share_pct = my_share
-        client_exchange.company_share_pct = company_share
+        if loss_share_percentage:
+            try:
+                loss_pct = int(loss_share_percentage)
+                if 0 <= loss_pct <= 100:
+                    # Only allow editing if no transactions exist (immutable rule)
+                    has_transactions = Transaction.objects.filter(client_exchange=client_exchange).exists()
+                    if not has_transactions:
+                        client_exchange.loss_share_percentage = loss_pct
+            except ValueError:
+                pass
+        
+        if profit_share_percentage:
+            try:
+                profit_pct = int(profit_share_percentage)
+                if 0 <= profit_pct <= 100:
+                    client_exchange.profit_share_percentage = profit_pct
+            except ValueError:
+                pass
+        
         client_exchange.save()
-        # Redirect to client detail
-        return redirect("client_detail", pk=client_exchange.client.pk)
+        
+        # Update report config if provided
+        if friend_percentage or my_own_percentage:
+            try:
+                friend_pct = int(friend_percentage) if friend_percentage else 0
+                own_pct = int(my_own_percentage) if my_own_percentage else 0
+                
+                # Validate: friend % + my own % = my total %
+                if friend_pct + own_pct == client_exchange.my_percentage:
+                    report_config, created = ClientExchangeReportConfig.objects.get_or_create(
+                        client_exchange=client_exchange,
+                        defaults={
+                            'friend_percentage': friend_pct,
+                            'my_own_percentage': own_pct,
+                        }
+                    )
+                    if not created:
+                        report_config.friend_percentage = friend_pct
+                        report_config.my_own_percentage = own_pct
+                        report_config.save()
+                else:
+                    from django.contrib import messages
+                    messages.warning(
+                        request,
+                        f"Friend % ({friend_pct}) + My Own % ({own_pct}) = {friend_pct + own_pct}, "
+                        f"but My Total % = {client_exchange.my_percentage}. Report config not updated."
+                    )
+            except ValueError:
+                # Invalid integer values - skip report config update
+                pass
+        
+        from django.contrib import messages
+        messages.success(request, "Percentages updated successfully.")
+        return redirect("exchange_account_detail", pk=client_exchange.pk)
 
     
     # GET request - prepare context
     exchanges = Exchange.objects.all().order_by("name") if can_edit_exchange else None
     days_remaining = (10 - days_since_creation) if can_edit_exchange else 0
     client_type = "company" if False else "my"
+    
+    # Get report config if exists
+    report_config = None
+    try:
+        report_config = client_exchange.report_config
+    except ClientExchangeReportConfig.DoesNotExist:
+        pass
+    
+    # Check if loss percentage can be edited (immutable if transactions exist)
+    has_transactions = Transaction.objects.filter(client_exchange=client_exchange).exists()
+    can_edit_loss_percentage = not has_transactions
     
     return render(request, "core/exchanges/edit_client_link.html", {
         "client_exchange": client_exchange,
@@ -3014,6 +3140,9 @@ def client_exchange_edit(request, pk):
         "days_since_creation": days_since_creation,
         "days_remaining": days_remaining,
         "client_type": client_type,
+        "report_config": report_config,
+        "can_edit_loss_percentage": can_edit_loss_percentage,
+        "has_transactions": has_transactions,
     })
 
 
@@ -4132,7 +4261,21 @@ def update_exchange_balance(request, account_id):
 
 @login_required
 def record_payment(request, account_id):
-    """Record a payment for a client-exchange account.
+    """
+    ═══════════════════════════════════════════════════════════════════════════
+    1️⃣ CORE RULE (DO NOT BREAK THIS)
+    ═══════════════════════════════════════════════════════════════════════════
+    Record Payment = Profit or Loss Event
+    
+    Who pays          Meaning                      Effect on YOU
+    ──────────────────────────────────────────────────────────────────────────
+    Client → You      Client loss settlement       ✅ Your PROFIT  (+X)
+    You → Client      Client profit settlement     ❌ Your LOSS    (-X)
+    
+    SIGN CONVENTION:
+      +X = Client paid YOU (Client loss)  → Your PROFIT
+      -X = YOU paid client (Client profit) → Your LOSS
+    ═══════════════════════════════════════════════════════════════════════════
     
     MASKED SHARE SETTLEMENT SYSTEM - Settlement Logic:
     - Uses database row locking to prevent concurrent payment race conditions
@@ -4341,11 +4484,14 @@ def record_payment(request, account_id):
                         notes=notes or f"Payment recorded: {paid_amount}"
                     )
                     
-                    # Create SETTLEMENT_SHARE transaction with before/after balances
+                    # Create RECORD_PAYMENT transaction with before/after balances
+                    # CORE RULE: This transaction type is used for profit/loss reporting
+                    # +X = Client paid YOU (Client loss settlement) → Your PROFIT
+                    # -X = YOU paid client (Client profit settlement) → Your LOSS
                     Transaction.objects.create(
                         client_exchange=account,
                         date=payment_date,
-                        type='SETTLEMENT_SHARE',
+                        type='RECORD_PAYMENT',
                         amount=transaction_amount,
                         funding_before=funding_before,
                         funding_after=funding_after_settlement,

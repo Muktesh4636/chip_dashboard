@@ -67,12 +67,31 @@ WSGI_APPLICATION = 'broker_portal.wsgi.application'
 
 
 # Database
+# PostgreSQL Configuration (production-ready, efficient, scalable)
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME', default='broker_portal'),
+        'USER': config('DB_USER', default='postgres'),
+        'PASSWORD': config('DB_PASSWORD', default=''),
+        'HOST': config('DB_HOST', default='localhost'),
+        'PORT': config('DB_PORT', default='5432'),
+        'OPTIONS': {
+            'connect_timeout': 10,
+        },
+        # Connection pooling for better performance
+        'CONN_MAX_AGE': 600 if not DEBUG else 0,  # Reuse connections in production
     }
 }
+
+# Fallback to SQLite for development if PostgreSQL is not available
+# Uncomment below and comment above if you need SQLite temporarily
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
 
 
 # Password validation - Enhanced security
@@ -110,6 +129,9 @@ STATIC_URL = 'static/'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Custom User Model
+AUTH_USER_MODEL = 'core.CustomUser'
 
 # Authentication settings
 LOGIN_URL = '/login/'
@@ -161,11 +183,13 @@ LOGIN_RATE_LIMIT_WINDOW = config('LOGIN_RATE_LIMIT_WINDOW', default=300, cast=in
 # SECURITY: Database Security
 # Use connection pooling and SSL in production
 if not DEBUG:
-    DATABASES['default']['CONN_MAX_AGE'] = 600  # Connection pooling
-    # For PostgreSQL, add SSL:
-    # DATABASES['default']['OPTIONS'] = {
-    #     'sslmode': 'require',
-    # }
+    # Connection pooling is already set in DATABASES config above
+    # PostgreSQL SSL configuration for production
+    ssl_mode = config('DB_SSLMODE', default='prefer')
+    if ssl_mode != 'prefer':
+        DATABASES['default']['OPTIONS'].update({
+            'sslmode': ssl_mode,  # prefer, require, verify-full
+        })
 
 # SECURITY: File Upload Security
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2621440  # 2.5 MB

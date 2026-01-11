@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}
+{% load math_filters %}
 
 {% block title %}Client · {{ client.name }}{% endblock %}
 {% block page_title %}{{ client.name }}{% endblock %}
@@ -30,16 +31,16 @@
     </div>
     <div class="card">
         <div class="card-title">Total Funding</div>
-        <div class="card-value">{{ total_funding|floatformat:0 }}</div>
+        <div class="card-value">{{ total_funding|currency_inr }}</div>
     </div>
     <div class="card">
         <div class="card-title">Total Exchange Balance</div>
-        <div class="card-value">{{ total_exchange_balance|floatformat:0 }}</div>
+        <div class="card-value">{{ total_exchange_balance|currency_inr }}</div>
     </div>
     <div class="card">
         <div class="card-title">Total Client PnL</div>
         <div class="card-value {% if total_client_pnl > 0 %}positive{% elif total_client_pnl < 0 %}negative{% endif %}">
-            {{ total_client_pnl|floatformat:0 }}
+            {{ total_client_pnl|currency_inr }}
         </div>
     </div>
 </div>
@@ -79,14 +80,14 @@
                             {{ account.exchange.name }}{% if account.exchange.code %} ({{ account.exchange.code }}){% endif %}
                         </a>
                     </td>
-                    <td>{{ account.funding|floatformat:0 }}</td>
-                    <td>{{ account.exchange_balance|floatformat:0 }}</td>
+                    <td>{{ account.funding|currency_inr }}</td>
+                    <td>{{ account.exchange_balance|currency_inr }}</td>
                     <td>
                         {% if pnl == 0 %}
                             <span style="color: var(--muted);">N.A</span>
                         {% else %}
                             <span class="{% if pnl > 0 %}positive{% else %}negative{% endif %}">
-                                {{ pnl|floatformat:0 }}
+                                {{ pnl|currency_inr }}
                             </span>
                         {% endif %}
                     </td>
@@ -94,7 +95,7 @@
                         {% if pnl == 0 %}
                             <span style="color: var(--muted);">N.A</span>
                         {% else %}
-                            {{ share|floatformat:0 }}
+                            {{ share|currency_inr }}
                         {% endif %}
                     </td>
                     <td>{{ account.my_percentage }}%</td>

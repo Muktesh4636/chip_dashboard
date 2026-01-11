@@ -9,6 +9,99 @@
 {% endblock %}
 
 {% block content %}
+<style>
+    /* Fixed center overlay dropdown - zero movement */
+    .client-dropdown {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        max-height: 400px;
+        overflow-y: auto;
+        z-index: 10000;
+        background: var(--bg-content);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        min-width: 300px;
+        max-width: 500px;
+        display: none;
+    }
+    
+    .client-dropdown.active {
+        display: block;
+    }
+    
+    .dropdown-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.3);
+        z-index: 9999;
+        display: none;
+    }
+    
+    .dropdown-overlay.active {
+        display: block;
+    }
+    
+    .dropdown-header {
+        padding: 16px;
+        border-bottom: 1px solid var(--border);
+        font-weight: 600;
+        font-size: 16px;
+        color: var(--text);
+    }
+    
+    .dropdown-options {
+        max-height: 320px;
+        overflow-y: auto;
+    }
+    
+    .dropdown-option {
+        padding: 12px 16px;
+        cursor: pointer;
+        transition: background 0.12s ease;
+        color: var(--text);
+        font-size: 15px;
+    }
+    
+    .dropdown-option:hover {
+        background: var(--accent-soft);
+    }
+    
+    .dropdown-option.selected {
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 500;
+    }
+    
+    .dropdown-trigger {
+        cursor: pointer;
+        position: relative;
+    }
+</style>
+
+<!-- Dropdown Overlay -->
+<div class="dropdown-overlay" id="dropdownOverlay" onclick="closeExchangeDropdown()"></div>
+
+<!-- Exchange Dropdown Modal -->
+<div class="client-dropdown" id="exchangeDropdown">
+    <div class="dropdown-header">Select Exchange</div>
+    <div class="dropdown-options" id="exchangeDropdownOptions">
+        <div class="dropdown-option {% if not selected_exchange %}selected{% endif %}" onclick="selectExchange('', 'All Exchanges')">
+            All Exchanges
+        </div>
+        {% for exchange in all_exchanges %}
+        <div class="dropdown-option {% if selected_exchange == exchange.pk %}selected{% endif %}" onclick="selectExchange('{{ exchange.pk }}', '{{ exchange.name }}{% if exchange.code %} ({{ exchange.code }}){% endif %}')">
+            {{ exchange.name }}{% if exchange.code %} ({{ exchange.code }}){% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
 {% if messages %}
     <div style="margin-bottom: 20px;">
         {% for message in messages %}
@@ -19,14 +112,18 @@
     </div>
 {% endif %}
 <div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
-    <form method="get" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+    <form method="get" id="searchForm" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
         <div style="flex: 1; min-width: 200px;">
             <label class="field-label" style="margin-bottom: 6px;">Search Client</label>
             <input type="text" name="client_search" value="{{ client_search }}" class="field-input" placeholder="Client name or code..." style="width: 100%;">
         </div>
         <div style="flex: 1; min-width: 200px;">
             <label class="field-label" style="margin-bottom: 6px;">Search Exchange</label>
-            <select name="exchange" class="field-input" style="width: 100%;">
+            <div class="dropdown-trigger field-input" id="exchangeTrigger" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;" onclick="openExchangeDropdown()">
+                <span id="exchangeDisplay">{% if selected_exchange %}{% for exchange in all_exchanges %}{% if selected_exchange == exchange.pk %}{{ exchange.name }}{% if exchange.code %} ({{ exchange.code }}){% endif %}{% endif %}{% endfor %}{% else %}All Exchanges{% endif %}</span>
+                <span style="color: var(--muted);">▼</span>
+            </div>
+            <select name="exchange" id="exchangeSelect" style="display: none;">
                 <option value="">All Exchanges</option>
                 {% for exchange in all_exchanges %}
                     <option value="{{ exchange.pk }}" {% if selected_exchange == exchange.pk %}selected{% endif %}>
@@ -43,6 +140,33 @@
         </div>
     </form>
 </div>
+
+<script>
+function openExchangeDropdown() {
+    document.getElementById('dropdownOverlay').classList.add('active');
+    document.getElementById('exchangeDropdown').classList.add('active');
+}
+
+function closeExchangeDropdown() {
+    document.getElementById('dropdownOverlay').classList.remove('active');
+    document.getElementById('exchangeDropdown').classList.remove('active');
+}
+
+function selectExchange(value, displayText) {
+    document.getElementById('exchangeSelect').value = value;
+    document.getElementById('exchangeDisplay').textContent = displayText;
+    closeExchangeDropdown();
+    // Auto-submit the form to filter immediately
+    document.getElementById('searchForm').submit();
+}
+
+// Close dropdown on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeExchangeDropdown();
+    }
+});
+</script>
 
 <div class="table-wrapper">
     <div class="table-header">

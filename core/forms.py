@@ -3,7 +3,10 @@ Forms for the Profit-Loss-Share-Settlement System
 """
 from django import forms
 from django.core.exceptions import ValidationError
-from .models import Client, Exchange, ClientExchangeAccount, ClientExchangeReportConfig, Transaction
+from django.contrib.auth import get_user_model
+from .models import Client, Exchange, ClientExchangeAccount, ClientExchangeReportConfig, Transaction, EmailOTP
+
+User = get_user_model()
 
 
 class ClientForm(forms.ModelForm):
@@ -180,4 +183,86 @@ class RecordPaymentForm(forms.Form):
                 )
         
         return paid_amount
+
+
+class SignupForm(forms.Form):
+    """Form for user registration with username, email, and password."""
+    username = forms.CharField(
+        min_length=4,
+        max_length=30,
+        required=True,
+        widget=forms.TextInput(attrs={
+            'class': 'field-input',
+            'placeholder': 'Enter your username',
+            'autofocus': True,
+            'minlength': '4',
+            'maxlength': '30'
+        }),
+        help_text="Required. 4-30 characters. You can use any characters."
+    )
+    email = forms.EmailField(
+        required=True,
+        widget=forms.EmailInput(attrs={
+            'class': 'field-input',
+            'placeholder': 'Enter your email address'
+        }),
+        help_text="Required. We'll send a verification code to this email."
+    )
+    password = forms.CharField(
+        required=True,
+        widget=forms.PasswordInput(attrs={
+            'class': 'field-input',
+            'placeholder': 'Enter your password'
+        }),
+        help_text="Required. Minimum 12 characters.",
+        min_length=12
+    )
+    
+    def clean_username(self):
+        username = self.cleaned_data.get('username')
+        
+        # Validate length
+        if len(username) < 4:
+            raise ValidationError("Username must be at least 4 characters long.")
+        if len(username) > 30:
+            raise ValidationError("Username must be at most 30 characters long.")
+        
+        # Check for duplicate
+        if User.objects.filter(username=username).exists():
+            raise ValidationError("A user with this username already exists.")
+        
+        return username
+    
+    def clean_email(self):
+        email = self.cleaned_data.get('email')
+        if User.objects.filter(email=email).exists():
+            raise ValidationError("A user with this email already exists.")
+        return email
+
+
+class OTPVerificationForm(forms.Form):
+    """Form for verifying OTP code."""
+    otp_code = forms.CharField(
+        max_length=6,
+        min_length=6,
+        required=True,
+        widget=forms.TextInput(attrs={
+            'class': 'field-input',
+            'placeholder': 'Enter 6-digit OTP',
+            'autofocus': True,
+            'maxlength': '6',
+            'pattern': '[0-9]{6}'
+        }),
+        help_text="Enter the 6-digit code sent to your email."
+    )
+    
+    def __init__(self, *args, **kwargs):
+        self.email = kwargs.pop('email', None)
+        super().__init__(*args, **kwargs)
+    
+    def clean_otp_code(self):
+        otp_code = self.cleaned_data.get('otp_code')
+        if not otp_code.isdigit():
+            raise ValidationError("OTP code must contain only digits.")
+        return otp_code
 

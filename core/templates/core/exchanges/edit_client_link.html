@@ -36,36 +36,50 @@
         </div>
         
         <div class="form-row">
-            <label class="field-label">My Share % (Your share of profits) *</label>
-            <input type="number" name="my_share_pct" id="my-share-input" class="field-input" step="0.01" min="0" max="100" value="{{ client_exchange.my_share_pct }}" required {% if client_type == 'company' %}oninput="validateCompanyShare()"{% endif %}>
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your percentage share of profits</div>
+            <label class="field-label">My Total Percentage *</label>
+            <input type="number" name="my_percentage" id="my-percentage-input" class="field-input" min="0" max="100" value="{{ client_exchange.my_percentage }}" required>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your total percentage share (0-100)</div>
         </div>
         
-        {% if client_type == 'company' %}
         <div class="form-row">
-            <label class="field-label">Company Share % (From CLIENT's share) *</label>
-            <input type="number" name="company_share_pct" id="company-share-input" class="field-input" step="0.01" min="0" max="100" value="{{ client_exchange.company_share_pct }}" required oninput="validateCompanyShare(); updateExample()">
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">
-                Percentage of CLIENT's share that company gets. Example: If your share is 30% and company share is 9%, company gets 9% of the client's 70% share.
+            <label class="field-label">Loss Share Percentage *</label>
+            <input type="number" name="loss_share_percentage" id="loss-share-input" class="field-input" min="0" max="100" value="{{ client_exchange.loss_share_percentage }}" required {% if not can_edit_loss_percentage %}disabled{% endif %}>
+            <div style="font-size: 12px; color: {% if can_edit_loss_percentage %}var(--muted){% else %}var(--danger){% endif %}; margin-top: 4px;">
+                {% if can_edit_loss_percentage %}
+                    Admin share percentage for losses (0-100)
+                {% else %}
+                    ⚠️ Cannot be changed - transactions already exist. Loss percentage is immutable once data exists.
+                {% endif %}
             </div>
-            <div id="example-calculation" style="font-size: 12px; color: var(--accent); margin-top: 4px; font-weight: 500; display: none;"></div>
-            <div id="validation-message" style="font-size: 12px; color: var(--danger); margin-top: 4px; display: none;"></div>
-            {% if error %}
-                <div style="font-size: 12px; color: var(--danger); margin-top: 4px;">{{ error }}</div>
-            {% endif %}
+        </div>
+        
+        <div class="form-row">
+            <label class="field-label">Profit Share Percentage *</label>
+            <input type="number" name="profit_share_percentage" id="profit-share-input" class="field-input" min="0" max="100" value="{{ client_exchange.profit_share_percentage }}" required>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Admin share percentage for profits (0-100). Can be changed anytime.</div>
+        </div>
+        
+        {% if report_config %}
+        <div style="border-top: 1px solid var(--border); margin: 20px 0; padding-top: 20px;">
+            <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 12px;">Report Configuration (Optional)</h4>
+            
+            <div class="form-row">
+                <label class="field-label">Friend Percentage</label>
+                <input type="number" name="friend_percentage" class="field-input" min="0" max="100" value="{{ report_config.friend_percentage }}">
+                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Friend/Student percentage (report only). Must sum with "My Own %" to equal "My Total %".</div>
+            </div>
+            
+            <div class="form-row">
+                <label class="field-label">My Own Percentage</label>
+                <input type="number" name="my_own_percentage" class="field-input" min="0" max="100" value="{{ report_config.my_own_percentage }}">
+                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your own percentage (report only). Friend % + My Own % = My Total %.</div>
+            </div>
         </div>
         {% endif %}
         
-        <div class="form-row">
-            <label style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" name="is_active" {% if client_exchange.is_active %}checked{% endif %}>
-                <span class="field-label" style="margin: 0;">Active</span>
-            </label>
-        </div>
-        
         <div style="display: flex; gap: 12px; margin-top: 20px;">
             <button type="submit" class="btn btn-primary" id="submit-btn">Save Changes</button>
-            <a href="{% url 'my_clients:detail' client_exchange.client.pk %}" class="btn">Cancel</a>
+            <a href="{% url 'exchange_account_detail' client_exchange.pk %}" class="btn">Cancel</a>
         </div>
     </form>
 </div>

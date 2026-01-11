@@ -8,6 +8,9 @@ urlpatterns = [
     # Authentication
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
+    path('signup/', views.signup_view, name='signup'),
+    path('verify-otp/', views.verify_otp_view, name='verify_otp'),
+    path('resend-otp/', views.resend_otp_view, name='resend_otp'),
     
     # Dashboard
     path('', views.dashboard, name='dashboard'),
@@ -23,6 +26,7 @@ urlpatterns = [
     path('exchanges/create/', views.exchange_create, name='exchange_create'),
     path('exchanges/link/', views.link_client_to_exchange, name='exchange_link'),
     path('exchanges/account/<int:pk>/', views.exchange_account_detail, name='exchange_account_detail'),
+    path('exchanges/account/<int:pk>/edit/', views.client_exchange_edit, name='client_exchange_edit'),
     
     # Funding & Transactions
     path('exchanges/account/<int:account_id>/funding/', views.add_funding, name='add_funding'),

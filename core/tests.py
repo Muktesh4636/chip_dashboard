@@ -1448,3 +1448,4 @@ class PendingPaymentsIntegrationTests(TestCase):
         total_settled = sum(s.amount for s in settlements)
         self.assertEqual(total_settled, 9)
 
+

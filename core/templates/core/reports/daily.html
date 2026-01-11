@@ -4,9 +4,12 @@
 {% block page_title %}Daily Report{% endblock %}
 {% block page_subtitle %}Transaction summary for {{ report_date }}{% endblock %}
 
-{% block content %}
+{% block extra_head %}
 <!-- Chart.js Library -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
 
 <div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
     <form method="get" style="display: flex; gap: 12px; align-items: center;">
@@ -123,9 +126,16 @@
 </div>
 
 <script>
-// Transaction Type Chart
-const typeCtx = document.getElementById('typeChart').getContext('2d');
-new Chart(typeCtx, {
+// Wait for Chart.js to load
+function initDailyCharts() {
+    if (typeof Chart === 'undefined') {
+        setTimeout(initDailyCharts, 100);
+        return;
+    }
+    
+    // Transaction Type Chart
+    const typeCtx = document.getElementById('typeChart').getContext('2d');
+    new Chart(typeCtx, {
     type: 'doughnut',
     data: {
         labels: {{ type_labels }},
@@ -198,7 +208,15 @@ new Chart(clientCtx, {
             }
         }
     }
-});
-{% endif %}
+    });
+    {% endif %}
+}
+
+// Initialize charts when DOM and Chart.js are ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDailyCharts);
+} else {
+    initDailyCharts();
+}
 </script>
 {% endblock %}

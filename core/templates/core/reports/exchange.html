@@ -4,9 +4,12 @@
 {% block page_title %}{{ exchange.name }} Report{% endblock %}
 {% block page_subtitle %}All transactions for {{ exchange.name }}{% if exchange.code %} ({{ exchange.code }}){% endif %}{% endblock %}
 
-{% block content %}
+{% block extra_head %}
 <!-- Chart.js Library -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
 
 <!-- Report Type Buttons -->
 <div style="display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;">
@@ -171,10 +174,15 @@
 {% if has_type_data %}
 <script>
 // Wait for Chart.js to load
-document.addEventListener('DOMContentLoaded', function() {
-// Transaction Type Chart
+function initExchangeCharts() {
+    if (typeof Chart === 'undefined') {
+        setTimeout(initExchangeCharts, 100);
+        return;
+    }
+    
+    // Transaction Type Chart
     const typeCtx = document.getElementById('typeChart');
-    if (typeCtx && typeof Chart !== 'undefined') {
+    if (typeCtx) {
         try {
             const typeLabels = {{ type_labels|safe }};
             const typeAmounts = {{ type_amounts|safe }};
@@ -271,8 +279,15 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error creating client chart:', e);
         }
     }
-{% endif %}
-});
+    {% endif %}
+}
+
+// Initialize charts when DOM and Chart.js are ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initExchangeCharts);
+} else {
+    initExchangeCharts();
+}
 </script>
 {% endif %}
 {% endblock %}

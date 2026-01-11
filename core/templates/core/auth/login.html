@@ -22,12 +22,45 @@
             
             <div class="form-row" style="margin-bottom: 24px;">
                 <label class="field-label">Password</label>
-                <input type="password" name="password" class="field-input" required>
+                <div style="position: relative;">
+                    <input type="password" name="password" class="field-input" required style="padding-right: 40px;">
+                    <button type="button" id="togglePassword" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--muted); font-size: 18px; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;" aria-label="Show password">
+                        <span id="passwordIcon">👁️</span>
+                    </button>
+                </div>
             </div>
             
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px;">Login</button>
         </form>
+        
+        <div style="margin-top: 24px; text-align: center; font-size: 14px; color: var(--muted);">
+            Don't have an account? <a href="{% url 'signup' %}" style="color: var(--accent); text-decoration: none;">Sign Up</a>
+        </div>
     </div>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const passwordInput = document.querySelector('input[name="password"]');
+        const toggleButton = document.getElementById('togglePassword');
+        const passwordIcon = document.getElementById('passwordIcon');
+        
+        if (passwordInput && toggleButton) {
+            toggleButton.addEventListener('click', function() {
+                const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordInput.setAttribute('type', type);
+                
+                // Toggle icon
+                if (type === 'text') {
+                    passwordIcon.textContent = '🙈';
+                    passwordIcon.setAttribute('aria-label', 'Hide password');
+                } else {
+                    passwordIcon.textContent = '👁️';
+                    passwordIcon.setAttribute('aria-label', 'Show password');
+                }
+            });
+        }
+    });
+</script>
 {% endblock %}
 

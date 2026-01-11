@@ -4,9 +4,12 @@
 {% block page_title %}Monthly Report{% endblock %}
 {% block page_subtitle %}{{ month_start|date:"F Y" }}{% endblock %}
 
-{% block content %}
+{% block extra_head %}
 <!-- Chart.js Library -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
 
 <div style="background: var(--bg-content); border-radius: 8px; padding: 20px; border: 1px solid var(--border); margin-bottom: 24px;">
     <form method="get" style="display: flex; gap: 12px; align-items: center;">
@@ -133,9 +136,16 @@
 </div>
 
 <script>
-// Weekly Breakdown Chart
-const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
-new Chart(weeklyCtx, {
+// Wait for Chart.js to load
+function initMonthlyCharts() {
+    if (typeof Chart === 'undefined') {
+        setTimeout(initMonthlyCharts, 100);
+        return;
+    }
+    
+    // Weekly Breakdown Chart
+    const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
+    new Chart(weeklyCtx, {
     type: 'bar',
     data: {
         labels: {{ weekly_labels }},
@@ -281,7 +291,15 @@ new Chart(clientCtx, {
             }
         }
     }
-});
-{% endif %}
+    });
+    {% endif %}
+}
+
+// Initialize charts when DOM and Chart.js are ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initMonthlyCharts);
+} else {
+    initMonthlyCharts();
+}
 </script>
 {% endblock %}

@@ -23,12 +23,6 @@
         </div>
     </div>
     
-    <div style="background: #fef3c7; padding: 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #f59e0b;">
-        <div style="font-size: 13px; color: #92400e;">
-            <strong>FUNDING RULE:</strong> When you add funding, BOTH funding and exchange_balance will increase by the same amount.
-        </div>
-    </div>
-    
     <form method="post" id="funding-form">
         {% csrf_token %}
         <div class="form-row">
@@ -47,10 +41,6 @@
                 id="funding_actual"
                 required
             >
-            <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">
-                <span style="color: #06b6d4;">ℹ️</span> Amount will be automatically formatted with commas. You can type numbers normally.<br>
-                Amount in smallest currency unit (e.g., paise for rupees). Both funding and exchange balance will increase by this amount.
-            </div>
         </div>
         
         <div class="form-row">

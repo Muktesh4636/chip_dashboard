@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}
+{% load math_filters %}
 
 {% block title %}Account · {{ account.client.name }} - {{ account.exchange.name }}{% endblock %}
 {% block page_title %}{{ account.client.name }} - {{ account.exchange.name }}{% endblock %}
@@ -8,6 +9,7 @@
 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
     <a href="{% url 'add_funding' account.pk %}" class="btn btn-primary">Add Funding</a>
     <a href="{% url 'update_balance' account.pk %}" class="btn btn-primary">Update Balance</a>
+    <a href="{% url 'client_exchange_edit' account.pk %}" class="btn btn-primary" style="background: #3b82f6; border: 2px solid #2563eb; font-weight: 600;">✏️ Edit Percentages</a>
     {% with settlement_info=account.get_remaining_settlement_amount %}
         {% if settlement_info.remaining > 0 %}
             <a href="{% url 'record_payment' account.pk %}" class="btn" style="background: #fef3c7; color: #92400e;">Record Payment</a>
@@ -23,16 +25,16 @@
 <div class="card-grid" style="margin-bottom: 24px;">
     <div class="card">
         <div class="card-title">Funding</div>
-        <div class="card-value">{{ account.funding|floatformat:0 }}</div>
+        <div class="card-value">{{ account.funding|currency_inr }}</div>
     </div>
     <div class="card">
         <div class="card-title">Exchange Balance</div>
-        <div class="card-value">{{ account.exchange_balance|floatformat:0 }}</div>
+        <div class="card-value">{{ account.exchange_balance|currency_inr }}</div>
     </div>
     <div class="card">
         <div class="card-title">Client PnL</div>
         <div class="card-value {% if pnl > 0 %}positive{% elif pnl < 0 %}negative{% endif %}">
-            {{ pnl|floatformat:0 }}
+            {{ pnl|currency_inr }}
         </div>
     </div>
     <div class="card">
@@ -41,7 +43,7 @@
             {% if share == 0 %}
                 <span style="color: var(--muted);">N.A (Zero Share)</span>
             {% else %}
-                {{ share|floatformat:0 }}
+                {{ share|currency_inr }}
             {% endif %}
         </div>
     </div>
@@ -51,7 +53,7 @@
             {% if share == 0 %}
                 <span style="color: var(--muted);">N.A</span>
             {% else %}
-                <strong style="color: var(--accent);">{{ remaining|floatformat:0 }}</strong>
+                <strong style="color: var(--accent);">{{ remaining.remaining|currency_inr }}</strong>
             {% endif %}
         </div>
     </div>
@@ -66,12 +68,18 @@
                 {{ account.my_percentage }}%
             {% endif %}
         </div>
+        <div style="margin-top: 8px;">
+            <a href="{% url 'client_exchange_edit' account.pk %}" style="font-size: 12px; color: #3b82f6; text-decoration: none; font-weight: 600;">✏️ Edit</a>
+        </div>
     </div>
 </div>
 
 <!-- Account Information -->
 <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); margin-bottom: 24px;">
-    <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">Account Information</h3>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h3 style="font-size: 18px; font-weight: 600; margin: 0;">Account Information</h3>
+        <a href="{% url 'client_exchange_edit' account.pk %}" class="btn btn-primary" style="background: #3b82f6; border: 2px solid #2563eb; font-weight: 600; padding: 8px 16px;">✏️ Edit Percentages</a>
+    </div>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
         <div>
             <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">Client</div>
@@ -86,6 +94,18 @@
             <div style="font-weight: 500;">
                 {{ account.exchange.name }}{% if account.exchange.code %} ({{ account.exchange.code }}){% endif %}
             </div>
+        </div>
+        <div>
+            <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">My Total %</div>
+            <div style="font-weight: 500;">{{ account.my_percentage }}%</div>
+        </div>
+        <div>
+            <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">Loss Share %</div>
+            <div style="font-weight: 500;">{{ account.loss_share_percentage|default:account.my_percentage }}%</div>
+        </div>
+        <div>
+            <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">Profit Share %</div>
+            <div style="font-weight: 500;">{{ account.profit_share_percentage|default:account.my_percentage }}%</div>
         </div>
         <div>
             <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">Created</div>
@@ -123,7 +143,7 @@
 <div style="background: var(--bg-content); border-radius: 8px; padding: 0; border: 1px solid var(--border); overflow: hidden; margin-bottom: 24px;">
     <div class="table-header">
         <span>Settlement History</span>
-        <span class="pill">Total Settled: {{ total_settled|floatformat:0 }} / {{ final_share|floatformat:0 }}</span>
+        <span class="pill">Total Settled: {{ total_settled|currency_inr }} / {{ final_share|currency_inr }}</span>
     </div>
     <div class="table-wrapper" style="border: none; box-shadow: none;">
         <table>
@@ -138,7 +158,7 @@
             {% for settlement in settlements %}
             <tr>
                 <td>{{ settlement.date|date:"M d, Y H:i" }}</td>
-                <td><strong>{{ settlement.amount|floatformat:0 }}</strong></td>
+                <td><strong>{{ settlement.amount|currency_inr }}</strong></td>
                 <td style="color: var(--muted); font-size: 13px;">{{ settlement.notes|truncatewords:10|default:"—" }}</td>
             </tr>
             {% endfor %}
@@ -175,8 +195,8 @@
                         {{ tx.get_type_display }}
                     </span>
                 </td>
-                <td>{{ tx.amount|floatformat:0 }}</td>
-                <td>{{ tx.exchange_balance_after|floatformat:0 }}</td>
+                <td>{{ tx.amount|currency_inr }}</td>
+                <td>{{ tx.exchange_balance_after|currency_inr }}</td>
                 <td style="color: var(--muted); font-size: 13px;">{{ tx.notes|truncatewords:10|default:"—" }}</td>
             </tr>
             {% endfor %}
