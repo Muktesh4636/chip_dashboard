@@ -64,15 +64,15 @@
             <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 12px;">Report Configuration (Optional)</h4>
             
             <div class="form-row">
-                <label class="field-label">Friend Percentage</label>
+                <label class="field-label">Company Percentage</label>
                 <input type="number" name="friend_percentage" class="field-input" min="0" max="100" value="{{ report_config.friend_percentage }}">
-                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Friend/Student percentage (report only). Must sum with "My Own %" to equal "My Total %".</div>
+                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Company percentage (report only). Must sum with "My Own %" to equal "My Total %".</div>
             </div>
             
             <div class="form-row">
                 <label class="field-label">My Own Percentage</label>
                 <input type="number" name="my_own_percentage" class="field-input" min="0" max="100" value="{{ report_config.my_own_percentage }}">
-                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your own percentage (report only). Friend % + My Own % = My Total %.</div>
+                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your own percentage (report only). Company % + My Own % = My Total %.</div>
             </div>
         </div>
         {% endif %}

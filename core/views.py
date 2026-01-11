@@ -2245,27 +2245,27 @@ def report_overview(request):
     #   -X = YOU paid client (Client profit) → Your LOSS
     #
     # ═══════════════════════════════════════════════════════════════════════════
-    # 2️⃣ SHARE SPLIT LOGIC (YOUR + FRIEND)
+    # 2️⃣ SHARE SPLIT LOGIC (YOUR + COMPANY)
     # ═══════════════════════════════════════════════════════════════════════════
     # Configuration:
     #   My Total % = 10%
-    #   Friend % = 4%
+    #   Company % = 4%
     #   My Own % = 6%
     #
-    # ✔ Validation: Friend % + My Own % = My Total %
+    # ✔ Validation: Company % + My Own % = My Total %
     #
     # Split Formula:
     #   My Profit = Payment Amount × (My Own % / My Total %)
-    #   Friend Profit = Payment Amount × (Friend % / My Total %)
+    #   Company Profit = Payment Amount × (Company % / My Total %)
     #
     # Example: Payment = +9 (Client loss, your profit)
     #   My Profit = 9 × 6 / 10 = 5.4
-    #   Friend Profit = 9 × 4 / 10 = 3.6
+    #   Company Profit = 9 × 4 / 10 = 3.6
     #   Verification: 5.4 + 3.6 = 9 ✓
     #
     # Example: Payment = -5 (Client profit, your loss)
     #   My Profit = -5 × 6 / 10 = -3.0
-    #   Friend Profit = -5 × 4 / 10 = -2.0
+    #   Company Profit = -5 × 4 / 10 = -2.0
     #   Verification: -3.0 + (-2.0) = -5 ✓
     # ═══════════════════════════════════════════════════════════════════════════
     #
@@ -2324,7 +2324,7 @@ def report_overview(request):
         payment_qs.filter(amount__lt=0).aggregate(total=Sum("amount"))["total"] or Decimal(0)
     )
     
-    # 📘 MY PROFIT AND FRIEND PROFIT Calculation (CORRECTNESS LOGIC)
+    # 📘 MY PROFIT AND COMPANY PROFIT Calculation (CORRECTNESS LOGIC)
     # SINGLE SOURCE OF TRUTH: RECORD_PAYMENT transactions only
     # Sign convention: +X = Client paid YOU, -X = YOU paid client
     # Payment amount IS the signed amount - no direction determination needed
@@ -2358,8 +2358,8 @@ def report_overview(request):
             continue
         
         # ═══════════════════════════════════════════════════════════════════
-        # SHARE SPLIT LOGIC: Split payment between My Own % and Friend %
-        # Validation: Friend % + My Own % = My Total %
+        # SHARE SPLIT LOGIC: Split payment between My Own % and Company %
+        # Validation: Company % + My Own % = My Total %
         # ═══════════════════════════════════════════════════════════════════
         report_config = getattr(account, 'report_config', None)
         
@@ -2369,16 +2369,16 @@ def report_overview(request):
             
             # Split payment amount directly (works for both +ve and -ve)
             # Formula: My Profit = Payment × (My Own % / My Total %)
-            #         Friend Profit = Payment × (Friend % / My Total %)
+            #         Company Profit = Payment × (Company % / My Total %)
             #
             # Example: Payment = +9 (Client loss, your profit)
             #   My Profit = 9 × 6 / 10 = 5.4
-            #   Friend Profit = 9 × 4 / 10 = 3.6
+            #   Company Profit = 9 × 4 / 10 = 3.6
             #   Verification: 5.4 + 3.6 = 9 ✓
             #
             # Example: Payment = -5 (Client profit, your loss)
             #   My Profit = -5 × 6 / 10 = -3.0
-            #   Friend Profit = -5 × 4 / 10 = -2.0
+            #   Company Profit = -5 × 4 / 10 = -2.0
             #   Verification: -3.0 + (-2.0) = -5 ✓
             my_profit_part = payment_amount * my_own_pct / my_total_pct
             friend_profit_part = payment_amount * friend_pct / my_total_pct
@@ -2391,7 +2391,7 @@ def report_overview(request):
         friend_profit_total += friend_profit_part
     
     # Verify aggregated totals reconcile (for correctness)
-    # Your Total Profit == Σ(My Profit) + Σ(Friend Profit)
+    # Your Total Profit == Σ(My Profit) + Σ(Company Profit)
     # This should always hold true
     
     # Remove company_profit (obsolete)
@@ -3088,7 +3088,7 @@ def client_exchange_edit(request, pk):
                 friend_pct = int(friend_percentage) if friend_percentage else 0
                 own_pct = int(my_own_percentage) if my_own_percentage else 0
                 
-                # Validate: friend % + my own % = my total %
+                # Validate: company % + my own % = my total %
                 if friend_pct + own_pct == client_exchange.my_percentage:
                     report_config, created = ClientExchangeReportConfig.objects.get_or_create(
                         client_exchange=client_exchange,
@@ -3105,7 +3105,7 @@ def client_exchange_edit(request, pk):
                     from django.contrib import messages
                     messages.warning(
                         request,
-                        f"Friend % ({friend_pct}) + My Own % ({own_pct}) = {friend_pct + own_pct}, "
+                        f"Company % ({friend_pct}) + My Own % ({own_pct}) = {friend_pct + own_pct}, "
                         f"but My Total % = {client_exchange.my_percentage}. Report config not updated."
                     )
             except ValueError:
@@ -3175,9 +3175,9 @@ def transaction_create(request):
                 # For manual transactions, before = after (no balance change)
                 funding_before = client_exchange.funding
                 exchange_before = client_exchange.exchange_balance
-            
+                
                 transaction = Transaction.objects.create(
-                client_exchange=client_exchange,
+                    client_exchange=client_exchange,
                     date=timezone.make_aware(datetime.strptime(tx_date, "%Y-%m-%d").date()),
                     type=tx_type,  # Use 'type' field
                     amount=int(amount),
@@ -4028,7 +4028,7 @@ def link_client_to_exchange(request):
                     from django.contrib import messages
                     messages.warning(
                         request,
-                        f"Friend % ({friend_pct}) + My Own % ({own_pct}) = {friend_pct + own_pct}, "
+                        f"Company % ({friend_pct}) + My Own % ({own_pct}) = {friend_pct + own_pct}, "
                         f"but My Total % = {my_percentage_int}. Report config not created."
                     )
                 else:
@@ -4518,7 +4518,7 @@ def record_payment(request, account_id):
                             date=payment_date,
                             type='FUNDING_AUTO',
                             amount=int(masked_capital),
-                            exchange_balance_after=account.exchange_balance,
+                        exchange_balance_after=account.exchange_balance,
                             notes=f"Auto Re-Funding after settlement (linked to Settlement ID: {settlement.id}). "
                                   f"Amount: {int(masked_capital)} (Masked Capital)"
                         )

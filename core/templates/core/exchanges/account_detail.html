@@ -10,11 +10,6 @@
     <a href="{% url 'add_funding' account.pk %}" class="btn btn-primary">Add Funding</a>
     <a href="{% url 'update_balance' account.pk %}" class="btn btn-primary">Update Balance</a>
     <a href="{% url 'client_exchange_edit' account.pk %}" class="btn btn-primary" style="background: #3b82f6; border: 2px solid #2563eb; font-weight: 600;">✏️ Edit Percentages</a>
-    {% with settlement_info=account.get_remaining_settlement_amount %}
-        {% if settlement_info.remaining > 0 %}
-            <a href="{% url 'record_payment' account.pk %}" class="btn" style="background: #fef3c7; color: #92400e;">Record Payment</a>
-        {% endif %}
-    {% endwith %}
     <a href="{% url 'client_detail' account.client.pk %}" class="btn">Back to Client</a>
 </div>
 {% endblock %}
@@ -124,7 +119,7 @@
     <h3 style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">Report Configuration</h3>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
         <div>
-            <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">Friend %</div>
+            <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">Company %</div>
             <div style="font-weight: 500;">{{ account.report_config.friend_percentage }}%</div>
         </div>
         <div>

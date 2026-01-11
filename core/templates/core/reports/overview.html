@@ -346,62 +346,6 @@
     </a>
 </div>
 
-<!-- CORE RULE Explanation Box -->
-<div style="background: #f0f9ff; border: 2px solid #0ea5e9; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
-    <div style="display: flex; align-items: center; margin-bottom: 16px;">
-        <span style="font-size: 24px; margin-right: 12px;">1️⃣</span>
-        <h3 style="margin: 0; font-size: 18px; font-weight: 700; color: #0c4a6e;">CORE RULE (DO NOT BREAK THIS)</h3>
-    </div>
-    <div style="background: white; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
-        <div style="font-weight: 600; color: #075985; margin-bottom: 12px; font-size: 15px;">Record Payment = Profit or Loss Event</div>
-        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-            <thead>
-                <tr style="background: #e0f2fe; border-bottom: 2px solid #0ea5e9;">
-                    <th style="padding: 10px; text-align: left; font-weight: 600; color: #0c4a6e;">Who pays</th>
-                    <th style="padding: 10px; text-align: left; font-weight: 600; color: #0c4a6e;">Meaning</th>
-                    <th style="padding: 10px; text-align: left; font-weight: 600; color: #0c4a6e;">Effect on YOU</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr style="border-bottom: 1px solid #e0f2fe;">
-                    <td style="padding: 10px; color: #075985;">Client → You</td>
-                    <td style="padding: 10px; color: #075985;">Client loss settlement</td>
-                    <td style="padding: 10px; color: #16a34a; font-weight: 600;">✅ Your PROFIT</td>
-                </tr>
-                <tr>
-                    <td style="padding: 10px; color: #075985;">You → Client</td>
-                    <td style="padding: 10px; color: #075985;">Client profit settlement</td>
-                    <td style="padding: 10px; color: #dc2626; font-weight: 600;">❌ Your LOSS</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-    
-    <div style="display: flex; align-items: center; margin-bottom: 12px;">
-        <span style="font-size: 24px; margin-right: 12px;">2️⃣</span>
-        <h3 style="margin: 0; font-size: 18px; font-weight: 700; color: #0c4a6e;">SHARE SPLIT LOGIC (YOUR + FRIEND)</h3>
-    </div>
-    <div style="background: white; border-radius: 6px; padding: 16px;">
-        <div style="margin-bottom: 12px;">
-            <div style="font-weight: 600; color: #075985; margin-bottom: 8px; font-size: 15px;">Configuration:</div>
-            <div style="font-size: 14px; color: #075985; line-height: 1.8;">
-                <div>• <strong>My Total %</strong> = 10%</div>
-                <div>• <strong>Friend %</strong> = 4%</div>
-                <div>• <strong>My Own %</strong> = 6%</div>
-            </div>
-        </div>
-        <div style="background: #ecfdf5; border-left: 4px solid #10b981; padding: 12px; border-radius: 4px;">
-            <div style="font-weight: 600; color: #065f46; margin-bottom: 4px;">✔ Validation:</div>
-            <div style="color: #065f46; font-size: 14px;">Friend % + My Own % = My Total %</div>
-            <div style="color: #065f46; font-size: 14px; margin-top: 4px;">4% + 6% = 10% ✓</div>
-        </div>
-        <div style="margin-top: 12px; font-size: 13px; color: #64748b; font-style: italic;">
-            <strong>Formula:</strong> My Profit = Payment Amount × (My Own % / My Total %)<br>
-            <strong>Formula:</strong> Friend Profit = Payment Amount × (Friend % / My Total %)
-        </div>
-    </div>
-</div>
-
 <!-- Summary Stats -->
 <div class="stats-grid">
         <div class="stat-box turnover">
@@ -423,9 +367,9 @@
         <div class="stat-note">Your share from settlements (split from ClientExchangeReportConfig)</div>
     </div>
     <div class="stat-box profit">
-        <div class="stat-label">Friend Profit</div>
+        <div class="stat-label">Company Profit</div>
         <div class="stat-value {% if friend_profit >= 0 %}positive{% else %}negative{% endif %}">{{ friend_profit|default:0|currency_inr }}</div>
-        <div class="stat-note">Friend share from settlements (split from ClientExchangeReportConfig)</div>
+        <div class="stat-note">Company share from settlements (split from ClientExchangeReportConfig)</div>
     </div>
 </div>
 
@@ -462,6 +406,10 @@
     <div class="chart-header">Weekly Trends (Last 4 Weeks)</div>
     <div style="position: relative; height: 400px;">
         <canvas id="weeklyTrendsChart"></canvas>
+        <div id="weeklyChartPlaceholder" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #999;">
+            <div style="font-size: 16px; margin-bottom: 8px;">No data available</div>
+            <div style="font-size: 14px;">Weekly trends will appear here once you have transaction data</div>
+        </div>
     </div>
 </div>
 
@@ -470,6 +418,10 @@
         <div class="chart-header">Transaction Type Breakdown</div>
         <div style="position: relative; height: 320px;">
             <canvas id="typeBreakdownChart"></canvas>
+            <div id="typeChartPlaceholder" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #999;">
+                <div style="font-size: 16px; margin-bottom: 8px;">No data available</div>
+                <div style="font-size: 14px;">Transaction breakdown will appear here</div>
+            </div>
         </div>
     </div>
     
@@ -477,6 +429,10 @@
         <div class="chart-header">Daily Trends (Last 30 Days)</div>
         <div style="position: relative; height: 320px;">
             <canvas id="dailyTrendsChart"></canvas>
+            <div id="dailyChartPlaceholder" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #999;">
+                <div style="font-size: 16px; margin-bottom: 8px;">No data available</div>
+                <div style="font-size: 14px;">Daily trends will appear here</div>
+            </div>
         </div>
     </div>
 </div>
@@ -487,6 +443,10 @@
     <div class="chart-header">Monthly Trends (Last 6 Months)</div>
     <div style="position: relative; height: 400px;">
         <canvas id="monthlyTrendsChart"></canvas>
+        <div id="monthlyChartPlaceholder" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #999;">
+            <div style="font-size: 16px; margin-bottom: 8px;">No data available</div>
+            <div style="font-size: 14px;">Monthly trends will appear here once you have transaction data</div>
+        </div>
     </div>
 </div>
 
@@ -495,6 +455,10 @@
         <div class="chart-header">Transaction Type Breakdown</div>
         <div style="position: relative; height: 320px;">
             <canvas id="typeBreakdownChart"></canvas>
+            <div id="typeChartPlaceholder" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #999;">
+                <div style="font-size: 16px; margin-bottom: 8px;">No data available</div>
+                <div style="font-size: 14px;">Transaction breakdown will appear here</div>
+            </div>
         </div>
     </div>
     
@@ -502,6 +466,10 @@
         <div class="chart-header">Weekly Trends (Last 4 Weeks)</div>
         <div style="position: relative; height: 320px;">
             <canvas id="weeklyTrendsChart"></canvas>
+            <div id="weeklyChartPlaceholder" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: #999;">
+                <div style="font-size: 16px; margin-bottom: 8px;">No data available</div>
+                <div style="font-size: 14px;">Weekly trends will appear here</div>
+            </div>
         </div>
     </div>
 </div>
@@ -717,6 +685,7 @@ function initializeCharts() {
 // Daily Trends Chart
 {% if report_type == 'daily' or report_type == 'weekly' %}
 const dailyChartEl = document.getElementById('dailyTrendsChart');
+const dailyPlaceholder = document.getElementById('dailyChartPlaceholder');
 console.log('Daily chart element found:', dailyChartEl !== null);
 if (dailyChartEl) {
     try {
@@ -726,50 +695,67 @@ if (dailyChartEl) {
         const dailyLoss = {{ daily_loss|safe }} || [];
         const dailyTurnover = {{ daily_turnover|safe }} || [];
         
-        console.log('Daily chart data:', { labels: dailyLabels, profit: dailyProfit, loss: dailyLoss, turnover: dailyTurnover });
+        // Ensure data is arrays
+        const labels = Array.isArray(dailyLabels) ? dailyLabels : [];
+        const profit = Array.isArray(dailyProfit) ? dailyProfit : [];
+        const loss = Array.isArray(dailyLoss) ? dailyLoss : [];
+        const turnover = Array.isArray(dailyTurnover) ? dailyTurnover : [];
+        
+        // Check if we have any data
+        const hasData = labels.length > 0 && (profit.length > 0 || loss.length > 0 || turnover.length > 0);
+        
+        // Always create chart, even with empty data
+        const chartData = {
+            labels: labels.length > 0 ? labels : ['No Data'],
+            datasets: [
+                {
+                    label: 'Profit',
+                    data: profit.length > 0 ? profit : [0],
+                    borderColor: colors.profit,
+                    backgroundColor: colors.background.profit,
+                    tension: 0.4,
+                    fill: true,
+                    borderWidth: 3,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                },
+                {
+                    label: 'Loss',
+                    data: loss.length > 0 ? loss : [0],
+                    borderColor: colors.loss,
+                    backgroundColor: colors.background.loss,
+                    tension: 0.4,
+                    fill: true,
+                    borderWidth: 3,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                },
+                {
+                    label: 'Turnover',
+                    data: turnover.length > 0 ? turnover : [0],
+                    borderColor: colors.turnover,
+                    backgroundColor: colors.background.turnover,
+                    tension: 0.4,
+                    fill: true,
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointHoverRadius: 5,
+                    yAxisID: 'y1'
+                }
+            ]
+        };
+        
+        // Show placeholder if no data
+        if (!hasData && dailyPlaceholder) {
+            dailyPlaceholder.style.display = 'block';
+        }
+        
+        console.log('Daily chart data:', chartData);
         console.log('Creating daily chart...');
         
         const dailyChart = new Chart(dailyCtx, {
         type: 'line',
-                data: {
-                    labels: dailyLabels,
-                    datasets: [
-                        {
-                            label: 'Profit',
-                            data: dailyProfit,
-                        borderColor: colors.profit,
-                        backgroundColor: colors.background.profit,
-                tension: 0.4,
-                fill: true,
-                        borderWidth: 3,
-                        pointRadius: 4,
-                        pointHoverRadius: 6
-            },
-                        {
-                            label: 'Loss',
-                            data: dailyLoss,
-                            borderColor: colors.loss,
-                            backgroundColor: colors.background.loss,
-                    tension: 0.4,
-                    fill: true,
-                            borderWidth: 3,
-                            pointRadius: 4,
-                            pointHoverRadius: 6
-                },
-                        {
-                            label: 'Turnover',
-                            data: dailyTurnover,
-                        borderColor: colors.turnover,
-                        backgroundColor: colors.background.turnover,
-                tension: 0.4,
-                fill: true,
-                borderWidth: 2,
-                        pointRadius: 3,
-                        pointHoverRadius: 5,
-                yAxisID: 'y1'
-            }
-        ]
-    },
+                data: chartData,
     options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -838,6 +824,7 @@ if (dailyChartEl) {
 // Weekly Trends Chart
 {% if report_type == 'weekly' or report_type == 'monthly' %}
 const weeklyChartEl = document.getElementById('weeklyTrendsChart');
+const weeklyPlaceholder = document.getElementById('weeklyChartPlaceholder');
 console.log('Weekly chart element found:', weeklyChartEl !== null);
 if (weeklyChartEl) {
     try {
@@ -846,32 +833,48 @@ if (weeklyChartEl) {
         const weeklyProfit = {{ weekly_profit|safe }} || [];
         const weeklyLoss = {{ weekly_loss|safe }} || [];
         
-        console.log('Weekly chart data:', { labels: weeklyLabels, profit: weeklyProfit, loss: weeklyLoss });
+        // Ensure data is arrays
+        const labels = Array.isArray(weeklyLabels) ? weeklyLabels : [];
+        const profit = Array.isArray(weeklyProfit) ? weeklyProfit : [];
+        const loss = Array.isArray(weeklyLoss) ? weeklyLoss : [];
+        
+        // Check if we have any data
+        const hasData = labels.length > 0 && (profit.length > 0 || loss.length > 0);
+        
+        // Always create chart, even with empty data
+        const chartData = {
+            labels: labels.length > 0 ? labels : ['No Data'],
+            datasets: [
+                {
+                    label: 'Profit',
+                    data: profit.length > 0 ? profit : [0],
+                    backgroundColor: colors.profit + 'CC',
+                    borderColor: colors.profit,
+                    borderWidth: 2,
+                    borderRadius: 6
+                },
+                {
+                    label: 'Loss',
+                    data: loss.length > 0 ? loss : [0],
+                    backgroundColor: colors.loss + 'CC',
+                    borderColor: colors.loss,
+                    borderWidth: 2,
+                    borderRadius: 6
+                }
+            ]
+        };
+        
+        // Show placeholder if no data
+        if (!hasData && weeklyPlaceholder) {
+            weeklyPlaceholder.style.display = 'block';
+        }
+        
+        console.log('Weekly chart data:', chartData);
         console.log('Creating weekly chart...');
         
         const weeklyChart = new Chart(weeklyCtx, {
         type: 'bar',
-                data: {
-                    labels: weeklyLabels,
-                    datasets: [
-                        {
-                            label: 'Profit',
-                            data: weeklyProfit,
-                            backgroundColor: colors.profit + 'CC',
-                            borderColor: colors.profit,
-                            borderWidth: 2,
-                            borderRadius: 6
-                },
-                        {
-                            label: 'Loss',
-                            data: weeklyLoss,
-                            backgroundColor: colors.loss + 'CC',
-                            borderColor: colors.loss,
-                            borderWidth: 2,
-                            borderRadius: 6
-                }
-            ]
-        },
+                data: chartData,
     options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -925,6 +928,7 @@ if (weeklyChartEl) {
 // Transaction Type Breakdown Chart
 {% if report_type == 'daily' or report_type == 'weekly' or report_type == 'monthly' %}
 const typeChartEl = document.getElementById('typeBreakdownChart');
+const typePlaceholder = document.getElementById('typeChartPlaceholder');
 console.log('Type breakdown chart element found:', typeChartEl !== null);
 if (typeChartEl) {
     try {
@@ -933,24 +937,39 @@ if (typeChartEl) {
         const typeLabels = {{ type_labels|safe }} || [];
         const typeAmounts = {{ type_amounts|safe }} || [];
         
-        console.log('Type breakdown chart data:', { labels: typeLabels, amounts: typeAmounts });
+        // Ensure data is arrays
+        const labels = Array.isArray(typeLabels) ? typeLabels : [];
+        const amounts = Array.isArray(typeAmounts) ? typeAmounts : [];
+        
+        // Check if we have data
+        const hasData = labels.length > 0 && amounts.length > 0 && amounts.some(a => a > 0);
+        
+        // Always create chart, even with empty data
+        const chartLabels = labels.length > 0 ? labels : ['No Data'];
+        const chartAmounts = amounts.length > 0 ? amounts : [1];
         
         // Update colors to modern palette
-        const modernColors = typeColors.map((c, i) => {
-            if (typeLabels[i] === 'Profit') return colors.profit;
-            if (typeLabels[i] === 'Loss') return colors.loss;
-            if (typeLabels[i] === 'Funding') return colors.funding;
-            if (typeLabels[i] === 'Settlement') return colors.settlement;
-            return c;
+        const modernColors = chartLabels.map((label, i) => {
+            if (label === 'Profit') return colors.profit;
+            if (label === 'Loss') return colors.loss;
+            if (label === 'Funding') return colors.funding;
+            if (label === 'Settlement') return colors.settlement;
+            return typeColors[i] || '#6c757d';
         });
         
+        // Show placeholder if no data
+        if (!hasData && typePlaceholder) {
+            typePlaceholder.style.display = 'block';
+        }
+        
+        console.log('Type breakdown chart data:', { labels: chartLabels, amounts: chartAmounts });
         console.log('Creating type breakdown chart...');
         const typeChart = new Chart(typeCtx, {
             type: 'doughnut',
             data: {
-                labels: typeLabels,
+                labels: chartLabels,
                 datasets: [{
-                    data: typeAmounts,
+                    data: chartAmounts,
                     backgroundColor: modernColors,
             borderWidth: 3,
             borderColor: '#ffffff'
@@ -997,6 +1016,7 @@ if (typeChartEl) {
 // Monthly Trends Chart
 {% if report_type == 'monthly' %}
 const monthlyChartEl = document.getElementById('monthlyTrendsChart');
+const monthlyPlaceholder = document.getElementById('monthlyChartPlaceholder');
 console.log('Monthly chart element found:', monthlyChartEl !== null);
 if (monthlyChartEl) {
     try {
@@ -1006,42 +1026,48 @@ if (monthlyChartEl) {
         const monthlyLoss = {{ monthly_loss|safe }} || [];
         
         console.log('Monthly chart data:', { labels: monthlyLabels, profit: monthlyProfit, loss: monthlyLoss });
-        console.log('Monthly chart data types:', { 
-            labelsType: typeof monthlyLabels, 
-            profitType: typeof monthlyProfit, 
-            lossType: typeof monthlyLoss 
-        });
         
         // Ensure data is arrays
         const labels = Array.isArray(monthlyLabels) ? monthlyLabels : [];
         const profit = Array.isArray(monthlyProfit) ? monthlyProfit : [];
         const loss = Array.isArray(monthlyLoss) ? monthlyLoss : [];
         
-        console.log('Creating monthly chart with data:', { labels, profit, loss });
+        // Check if we have any data
+        const hasData = labels.length > 0 && (profit.length > 0 || loss.length > 0);
+        
+        // Always create chart, even with empty data
+        const chartData = {
+            labels: labels.length > 0 ? labels : ['No Data'],
+            datasets: [
+                {
+                    label: 'Profit',
+                    data: profit.length > 0 ? profit : [0],
+                    backgroundColor: colors.profit + 'CC',
+                    borderColor: colors.profit,
+                    borderWidth: 2,
+                    borderRadius: 6
+                },
+                {
+                    label: 'Loss',
+                    data: loss.length > 0 ? loss : [0],
+                    backgroundColor: colors.loss + 'CC',
+                    borderColor: colors.loss,
+                    borderWidth: 2,
+                    borderRadius: 6
+                }
+            ]
+        };
+        
+        // Show placeholder if no data
+        if (!hasData && monthlyPlaceholder) {
+            monthlyPlaceholder.style.display = 'block';
+        }
+        
+        console.log('Creating monthly chart with data:', chartData);
         
         const monthlyChart = new Chart(monthlyCtx, {
         type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'Profit',
-                            data: profit,
-                            backgroundColor: colors.profit + 'CC',
-                            borderColor: colors.profit,
-                            borderWidth: 2,
-                            borderRadius: 6
-                },
-                        {
-                            label: 'Loss',
-                            data: loss,
-                        backgroundColor: colors.loss + 'CC',
-                        borderColor: colors.loss,
-                        borderWidth: 2,
-                        borderRadius: 6
-            }
-        ]
-    },
+                data: chartData,
     options: {
         responsive: true,
         maintainAspectRatio: false,

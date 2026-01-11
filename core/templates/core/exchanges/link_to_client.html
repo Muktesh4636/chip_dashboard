@@ -39,27 +39,182 @@
         
         <div class="form-row">
             <label class="field-label">My Total % *</label>
-            <input type="number" name="my_percentage" class="field-input" min="0" max="100" required>
+            <input type="number" name="my_percentage" id="my_percentage" class="field-input" min="0" max="100" required>
+            <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">
+                Your total percentage share (0-100)
+            </div>
         </div>
         
         <div style="border-top: 1px solid var(--border); margin: 20px 0; padding-top: 20px;">
+            <div style="background: #f0f9ff; border: 1px solid #0ea5e9; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                <div style="font-size: 13px; color: #075985; font-weight: 600; margin-bottom: 4px;">⚠️ Validation Rule:</div>
+                <div style="font-size: 13px; color: #075985;">Company % + My Own % <strong>must equal</strong> My Total %</div>
+                <div id="percentage-summary" style="font-size: 13px; color: #0c4a6e; margin-top: 8px; font-weight: 600;">
+                    Current: Company % (0) + My Own % (0) = <span id="current-sum">0</span> | My Total %: <span id="my-total-display">0</span>
+                </div>
+            </div>
             
             <div class="form-row">
-                <label class="field-label">Friend % (Report Only)</label>
-                <input type="number" name="friend_percentage" class="field-input" min="0" max="100" placeholder="Leave blank if not needed">
+                <label class="field-label">Company % (Report Only)</label>
+                <input type="number" name="friend_percentage" id="friend_percentage" class="field-input" min="0" max="100" value="0" placeholder="0">
                 <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">
-                    Friend/Student percentage. Must equal: My Total % - My Own %
+                    Company percentage (report only)
                 </div>
             </div>
             
             <div class="form-row">
                 <label class="field-label">My Own % (Report Only)</label>
-                <input type="number" name="my_own_percentage" class="field-input" min="0" max="100" placeholder="Leave blank if not needed">
+                <input type="number" name="my_own_percentage" id="my_own_percentage" class="field-input" min="0" max="100" value="0" placeholder="0">
                 <div style="font-size: 13px; color: var(--muted); margin-top: 4px;">
-                    Your own percentage. Friend % + My Own % must equal My Total %
+                    Your own percentage (report only)
                 </div>
             </div>
         </div>
+        
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const myTotalInput = document.getElementById('my_percentage');
+            const friendInput = document.getElementById('friend_percentage');
+            const myOwnInput = document.getElementById('my_own_percentage');
+            const summaryDiv = document.getElementById('percentage-summary');
+            
+            let isUpdating = false; // Prevent infinite loops
+            
+            function updateValidation() {
+                if (isUpdating) return;
+                
+                const myTotal = parseInt(myTotalInput.value) || 0;
+                const friend = parseInt(friendInput.value) || 0;
+                const myOwn = parseInt(myOwnInput.value) || 0;
+                const sum = friend + myOwn;
+                
+                // Update validation message
+                if (myTotal === 0) {
+                    summaryDiv.style.color = '#64748b';
+                    summaryDiv.innerHTML = `Current: Company % (${friend}) + My Own % (${myOwn}) = <strong>${sum}</strong> | My Total %: <strong>0</strong>`;
+                } else if (sum === myTotal) {
+                    summaryDiv.style.color = '#16a34a';
+                    summaryDiv.innerHTML = `✅ Valid: Company % (${friend}) + My Own % (${myOwn}) = <strong>${sum}</strong> | My Total %: <strong>${myTotal}</strong>`;
+                } else {
+                    summaryDiv.style.color = '#dc2626';
+                    summaryDiv.innerHTML = `❌ Invalid: Company % (${friend}) + My Own % (${myOwn}) = <strong>${sum}</strong> | My Total %: <strong>${myTotal}</strong> (Difference: ${Math.abs(sum - myTotal)})`;
+                }
+            }
+            
+            // Auto-calculate My Own % when My Total % or Company % changes
+            function autoCalculateMyOwn() {
+                if (isUpdating) return;
+                isUpdating = true;
+                
+                const myTotal = parseInt(myTotalInput.value) || 0;
+                const friend = parseInt(friendInput.value) || 0;
+                
+                if (myTotal > 0) {
+                    // Ensure Company % doesn't exceed My Total %
+                    if (friend > myTotal) {
+                        friendInput.value = myTotal;
+                        myOwnInput.value = 0;
+                    } else {
+                        // Calculate My Own % = My Total % - Company %
+                        const calculatedMyOwn = myTotal - friend;
+                        myOwnInput.value = Math.max(0, Math.min(100, calculatedMyOwn));
+                    }
+                } else {
+                    myOwnInput.value = 0;
+                }
+                
+                isUpdating = false;
+                updateValidation();
+            }
+            
+            // Auto-calculate Company % when My Total % or My Own % changes
+            function autoCalculateFriend() {
+                if (isUpdating) return;
+                isUpdating = true;
+                
+                const myTotal = parseInt(myTotalInput.value) || 0;
+                const myOwn = parseInt(myOwnInput.value) || 0;
+                
+                if (myTotal > 0) {
+                    // Ensure My Own % doesn't exceed My Total %
+                    if (myOwn > myTotal) {
+                        myOwnInput.value = myTotal;
+                        friendInput.value = 0;
+                    } else {
+                        // Calculate Company % = My Total % - My Own %
+                        const calculatedFriend = myTotal - myOwn;
+                        friendInput.value = Math.max(0, Math.min(100, calculatedFriend));
+                    }
+                } else {
+                    friendInput.value = 0;
+                }
+                
+                isUpdating = false;
+                updateValidation();
+            }
+            
+            // When My Total % changes, auto-adjust Friend % and My Own % to sum to My Total %
+            myTotalInput.addEventListener('input', function() {
+                if (isUpdating) return;
+                isUpdating = true;
+                
+                const myTotal = parseInt(myTotalInput.value) || 0;
+                const friend = parseInt(friendInput.value) || 0;
+                const myOwn = parseInt(myOwnInput.value) || 0;
+                
+                if (myTotal > 0) {
+                    // If Friend % is set, keep it and calculate My Own %
+                    if (friend > 0 && friend <= myTotal) {
+                        myOwnInput.value = myTotal - friend;
+                    }
+                    // If My Own % is set, keep it and calculate Friend %
+                    else if (myOwn > 0 && myOwn <= myTotal) {
+                        friendInput.value = myTotal - myOwn;
+                    }
+                    // If neither is set or both are 0, set Friend % to 0 and My Own % to My Total %
+                    else {
+                        friendInput.value = 0;
+                        myOwnInput.value = myTotal;
+                    }
+                } else {
+                    friendInput.value = 0;
+                    myOwnInput.value = 0;
+                }
+                
+                isUpdating = false;
+                updateValidation();
+            });
+            
+            // When Company % changes, auto-calculate My Own % to ensure sum equals My Total %
+            friendInput.addEventListener('input', function() {
+                if (isUpdating) return;
+                autoCalculateMyOwn();
+            });
+            
+            // When My Own % changes, auto-calculate Company % to ensure sum equals My Total %
+            myOwnInput.addEventListener('input', function() {
+                if (isUpdating) return;
+                autoCalculateFriend();
+            });
+            
+            // Initial validation
+            updateValidation();
+            
+            // Form submission validation
+            document.querySelector('form').addEventListener('submit', function(e) {
+                const myTotal = parseInt(myTotalInput.value) || 0;
+                const friend = parseInt(friendInput.value) || 0;
+                const myOwn = parseInt(myOwnInput.value) || 0;
+                const sum = friend + myOwn;
+                
+                if (myTotal > 0 && sum !== myTotal) {
+                    e.preventDefault();
+                    alert(`Validation Error: Company % (${friend}) + My Own % (${myOwn}) = ${sum}, but My Total % = ${myTotal}.\n\nPlease ensure Company % + My Own % equals My Total %.`);
+                    return false;
+                }
+            });
+        });
+        </script>
         
         <button type="submit" class="btn btn-primary mt-3">Link Client to Exchange</button>
         <a href="{% url 'exchange_list' %}" class="btn mt-3" style="margin-left: 8px;">Cancel</a>
