@@ -115,10 +115,8 @@
                     <td>
                         {% if item.show_na %}
                             <span style="color: var(--muted); font-size: 12px;">N.A</span>
-                        {% elif item.remaining_amount != 0 %}
-                            <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
                         {% else %}
-                            <span style="color: var(--muted); font-size: 12px;">Settled</span>
+                            <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
                         {% endif %}
                         <a href="{% url 'exchange_account_detail' item.account.pk %}" class="btn btn-sm">View Account</a>
                     </td>
@@ -197,10 +195,8 @@
                     <td>
                         {% if item.show_na %}
                             <span style="color: var(--muted); font-size: 12px;">N.A</span>
-                        {% elif item.remaining_amount != 0 %}
-                            <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
                         {% else %}
-                            <span style="color: var(--muted); font-size: 12px;">Settled</span>
+                            <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
                         {% endif %}
                         <a href="{% url 'exchange_account_detail' item.account.pk %}" class="btn btn-sm">View Account</a>
                     </td>
