@@ -3052,44 +3052,69 @@ def client_exchange_edit(request, pk):
                 "error": "Exchange cannot be modified after 10 days from creation.",
             })
 
-        # Update percentages
-        if my_percentage:
+        # Update percentages (using Decimal for precision)
+        from decimal import Decimal
+        percentage_updated = False
+        if my_percentage and my_percentage.strip():
             try:
-                my_pct = int(my_percentage)
+                my_pct = Decimal(str(my_percentage))
                 if 0 <= my_pct <= 100:
+                    # Set both loss and profit share percentages to match my_percentage
+                    # Convert to int for IntegerField (round to nearest integer)
+                    my_pct_int = int(round(float(my_pct)))
+                    
+                    # Update my_percentage
                     client_exchange.my_percentage = my_pct
-            except ValueError:
-                pass
-        
-        if loss_share_percentage:
-            try:
-                loss_pct = int(loss_share_percentage)
-                if 0 <= loss_pct <= 100:
-                    # Only allow editing if no transactions exist (immutable rule)
+                    
+                    # Only update loss_share_percentage if no transactions exist (immutable rule)
                     has_transactions = Transaction.objects.filter(client_exchange=client_exchange).exists()
                     if not has_transactions:
-                        client_exchange.loss_share_percentage = loss_pct
-            except ValueError:
-                pass
+                        client_exchange.loss_share_percentage = my_pct_int
+                    
+                    # Always update profit_share_percentage
+                    client_exchange.profit_share_percentage = my_pct_int
+                    percentage_updated = True
+            except (ValueError, TypeError) as e:
+                from django.contrib import messages
+                messages.error(request, f"Error updating percentages: {str(e)}")
+                # Re-render form with error
+                exchanges = Exchange.objects.all().order_by("name") if can_edit_exchange else None
+                days_remaining = (10 - days_since_creation) if can_edit_exchange else 0
+                client_type = "company" if False else "my"
+                report_config = None
+                try:
+                    report_config = client_exchange.report_config
+                except ClientExchangeReportConfig.DoesNotExist:
+                    pass
+                has_transactions = Transaction.objects.filter(client_exchange=client_exchange).exists()
+                can_edit_loss_percentage = not has_transactions
+                return render(request, "core/exchanges/edit_client_link.html", {
+                    "client_exchange": client_exchange,
+                    "exchanges": exchanges,
+                    "can_edit_exchange": can_edit_exchange,
+                    "days_since_creation": days_since_creation,
+                    "days_remaining": days_remaining,
+                    "client_type": client_type,
+                    "report_config": report_config,
+                    "can_edit_loss_percentage": can_edit_loss_percentage,
+                    "has_transactions": has_transactions,
+                    "error": f"Invalid percentage value: {str(e)}",
+                })
         
-        if profit_share_percentage:
-            try:
-                profit_pct = int(profit_share_percentage)
-                if 0 <= profit_pct <= 100:
-                    client_exchange.profit_share_percentage = profit_pct
-            except ValueError:
-                pass
-        
+        # Always save the client_exchange (exchange might have been updated, percentages updated above)
         client_exchange.save()
         
         # Update report config if provided
         if friend_percentage or my_own_percentage:
             try:
-                friend_pct = int(friend_percentage) if friend_percentage else 0
-                own_pct = int(my_own_percentage) if my_own_percentage else 0
+                friend_pct = Decimal(str(friend_percentage)) if friend_percentage else Decimal('0')
+                own_pct = Decimal(str(my_own_percentage)) if my_own_percentage else Decimal('0')
+                my_total_pct = Decimal(str(client_exchange.my_percentage))
                 
-                # Validate: company % + my own % = my total %
-                if friend_pct + own_pct == client_exchange.my_percentage:
+                # Validate: company % + my own % = my total % (with epsilon for floating point comparison)
+                epsilon = Decimal('0.01')
+                sum_percentages = friend_pct + own_pct
+                if abs(sum_percentages - my_total_pct) < epsilon:
                     report_config, created = ClientExchangeReportConfig.objects.get_or_create(
                         client_exchange=client_exchange,
                         defaults={
@@ -3105,11 +3130,13 @@ def client_exchange_edit(request, pk):
                     from django.contrib import messages
                     messages.warning(
                         request,
-                        f"Company % ({friend_pct}) + My Own % ({own_pct}) = {friend_pct + own_pct}, "
-                        f"but My Total % = {client_exchange.my_percentage}. Report config not updated."
+                        f"Company % ({friend_pct:.2f}) + My Own % ({own_pct:.2f}) = {sum_percentages:.2f}, "
+                        f"but My Total % = {my_total_pct:.2f}. Report config not updated."
                     )
-            except ValueError:
-                # Invalid integer values - skip report config update
+            except (ValueError, TypeError) as e:
+                # Invalid decimal values - skip report config update
+                from django.contrib import messages
+                messages.warning(request, f"Invalid percentage values: {str(e)}")
                 pass
         
         from django.contrib import messages
@@ -3413,6 +3440,44 @@ def report_daily(request):
     # Loss (paid to clients) = Absolute value of negative amounts
     your_loss = abs(payment_qs.filter(amount__lt=0).aggregate(total=Sum("amount"))["total"] or Decimal(0))
     
+    # 📘 MY PROFIT AND FRIEND PROFIT Calculation (split from total profit)
+    # Split formula: my_profit = payment × (my_own_percentage / my_percentage)
+    #                 friend_profit = payment × (friend_percentage / my_percentage)
+    my_profit_total = Decimal(0)
+    friend_profit_total = Decimal(0)
+    
+    # Get payment transactions with report_config for splitting
+    payment_transactions = payment_qs.select_related(
+        'client_exchange', 
+        'client_exchange__report_config'
+    )
+    
+    for tx in payment_transactions:
+        payment_amount = Decimal(str(tx.amount))  # Can be positive or negative
+        account = tx.client_exchange
+        my_total_pct = Decimal(str(account.my_percentage))
+        
+        if my_total_pct == 0:
+            continue
+        
+        # Split payment based on report_config percentages
+        report_config = getattr(account, 'report_config', None)
+        
+        if report_config:
+            my_own_pct = Decimal(str(report_config.my_own_percentage))
+            friend_pct = Decimal(str(report_config.friend_percentage))
+            
+            # Split payment amount
+            my_profit_part = payment_amount * my_own_pct / my_total_pct
+            friend_profit_part = payment_amount * friend_pct / my_total_pct
+        else:
+            # No report config: all goes to me
+            my_profit_part = payment_amount
+            friend_profit_part = Decimal(0)
+        
+        my_profit_total += my_profit_part
+        friend_profit_total += friend_profit_part
+    
     company_profit = Decimal(0)
     
     transactions = qs.select_related("client_exchange", "client_exchange__client", "client_exchange__exchange").order_by("-created_at")
@@ -3489,6 +3554,8 @@ def report_daily(request):
         "net_profit": net_profit,
         "profit_margin": profit_margin,
         "client_type_filter": client_type_filter,
+        "my_profit": int(round(float(my_profit_total or 0))),
+        "friend_profit": int(round(float(friend_profit_total or 0))),
         "company_profit": company_profit,
         "transactions": transactions,
         "type_labels": json.dumps(type_labels),
@@ -3544,6 +3611,44 @@ def report_weekly(request):
     
     # Loss (paid to clients) = Absolute value of negative amounts
     your_loss = abs(payment_qs.filter(amount__lt=0).aggregate(total=Sum("amount"))["total"] or Decimal(0))
+    
+    # 📘 MY PROFIT AND FRIEND PROFIT Calculation (split from total profit)
+    # Split formula: my_profit = payment × (my_own_percentage / my_percentage)
+    #                 friend_profit = payment × (friend_percentage / my_percentage)
+    my_profit_total = Decimal(0)
+    friend_profit_total = Decimal(0)
+    
+    # Get payment transactions with report_config for splitting
+    payment_transactions = payment_qs.select_related(
+        'client_exchange', 
+        'client_exchange__report_config'
+    )
+    
+    for tx in payment_transactions:
+        payment_amount = Decimal(str(tx.amount))  # Can be positive or negative
+        account = tx.client_exchange
+        my_total_pct = Decimal(str(account.my_percentage))
+        
+        if my_total_pct == 0:
+            continue
+        
+        # Split payment based on report_config percentages
+        report_config = getattr(account, 'report_config', None)
+        
+        if report_config:
+            my_own_pct = Decimal(str(report_config.my_own_percentage))
+            friend_pct = Decimal(str(report_config.friend_percentage))
+            
+            # Split payment amount
+            my_profit_part = payment_amount * my_own_pct / my_total_pct
+            friend_profit_part = payment_amount * friend_pct / my_total_pct
+        else:
+            # No report config: all goes to me
+            my_profit_part = payment_amount
+            friend_profit_part = Decimal(0)
+        
+        my_profit_total += my_profit_part
+        friend_profit_total += friend_profit_part
     
     company_profit = Decimal(0)
     
@@ -3618,6 +3723,8 @@ def report_weekly(request):
         "net_profit": net_profit,
         "profit_margin": profit_margin,
         "avg_daily_turnover": avg_daily_turnover,
+        "my_profit": int(round(float(my_profit_total or 0))),
+        "friend_profit": int(round(float(friend_profit_total or 0))),
         "company_profit": company_profit,
         "transactions": transactions,
         "daily_labels": json.dumps(daily_labels),
@@ -3674,6 +3781,44 @@ def report_monthly(request):
     
     # Loss (paid to clients) = Absolute value of negative amounts
     your_loss = abs(payment_qs.filter(amount__lt=0).aggregate(total=Sum("amount"))["total"] or Decimal(0))
+    
+    # 📘 MY PROFIT AND FRIEND PROFIT Calculation (split from total profit)
+    # Split formula: my_profit = payment × (my_own_percentage / my_percentage)
+    #                 friend_profit = payment × (friend_percentage / my_percentage)
+    my_profit_total = Decimal(0)
+    friend_profit_total = Decimal(0)
+    
+    # Get payment transactions with report_config for splitting
+    payment_transactions = payment_qs.select_related(
+        'client_exchange', 
+        'client_exchange__report_config'
+    )
+    
+    for tx in payment_transactions:
+        payment_amount = Decimal(str(tx.amount))  # Can be positive or negative
+        account = tx.client_exchange
+        my_total_pct = Decimal(str(account.my_percentage))
+        
+        if my_total_pct == 0:
+            continue
+        
+        # Split payment based on report_config percentages
+        report_config = getattr(account, 'report_config', None)
+        
+        if report_config:
+            my_own_pct = Decimal(str(report_config.my_own_percentage))
+            friend_pct = Decimal(str(report_config.friend_percentage))
+            
+            # Split payment amount
+            my_profit_part = payment_amount * my_own_pct / my_total_pct
+            friend_profit_part = payment_amount * friend_pct / my_total_pct
+        else:
+            # No report config: all goes to me
+            my_profit_part = payment_amount
+            friend_profit_part = Decimal(0)
+        
+        my_profit_total += my_profit_part
+        friend_profit_total += friend_profit_part
     
     company_profit = Decimal(0)
     
@@ -3787,6 +3932,8 @@ def report_monthly(request):
         "net_profit": net_profit,
         "profit_margin": profit_margin,
         "avg_daily_turnover": avg_daily_turnover,
+        "my_profit": int(round(float(my_profit_total or 0))),
+        "friend_profit": int(round(float(friend_profit_total or 0))),
         "company_profit": company_profit,
         "transactions": transactions,
         "weekly_labels": json.dumps(weekly_labels),
@@ -4020,17 +4167,20 @@ def link_client_to_exchange(request):
             
             # Create report config if friend/own percentages provided
             if friend_percentage or my_own_percentage:
-                friend_pct = float(friend_percentage) if friend_percentage else 0.0
-                own_pct = float(my_own_percentage) if my_own_percentage else 0.0
+                from decimal import Decimal
+                friend_pct = Decimal(str(friend_percentage)) if friend_percentage else Decimal('0')
+                own_pct = Decimal(str(my_own_percentage)) if my_own_percentage else Decimal('0')
+                my_total_pct = Decimal(str(my_percentage_float))
                 
                 # Validate: friend % + my own % = my total % (with epsilon for floating point comparison)
-                epsilon = 0.01
-                if abs(friend_pct + own_pct - my_percentage_float) >= epsilon:
+                epsilon = Decimal('0.01')
+                sum_percentages = friend_pct + own_pct
+                if abs(sum_percentages - my_total_pct) >= epsilon:
                     from django.contrib import messages
                     messages.warning(
                         request,
-                        f"Company % ({friend_pct:.2f}) + My Own % ({own_pct:.2f}) = {friend_pct + own_pct:.2f}, "
-                        f"but My Total % = {my_percentage_float:.2f}. Report config not created."
+                        f"Company % ({friend_pct:.2f}) + My Own % ({own_pct:.2f}) = {sum_percentages:.2f}, "
+                        f"but My Total % = {my_total_pct:.2f}. Report config not created."
                     )
                 else:
                     ClientExchangeReportConfig.objects.create(

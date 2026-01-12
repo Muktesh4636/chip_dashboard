@@ -9,6 +9,7 @@
 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
     <a href="{% url 'add_funding' account.pk %}" class="btn btn-primary">Add Funding</a>
     <a href="{% url 'update_balance' account.pk %}" class="btn btn-primary">Update Balance</a>
+    <a href="{% url 'client_exchange_edit' account.pk %}" class="btn btn-primary">Edit Percentage</a>
     <a href="{% url 'client_detail' account.client.pk %}" class="btn">Back to Client</a>
 </div>
 {% endblock %}
@@ -55,11 +56,11 @@
         <div class="card-title">Share Percentage</div>
         <div class="card-value">
             {% if pnl < 0 %}
-                {{ account.loss_share_percentage|default:account.my_percentage }}% (Loss)
+                {{ account.loss_share_percentage|default:account.my_percentage|floatformat:2 }}% (Loss)
             {% elif pnl > 0 %}
-                {{ account.profit_share_percentage|default:account.my_percentage }}% (Profit)
+                {{ account.profit_share_percentage|default:account.my_percentage|floatformat:2 }}% (Profit)
             {% else %}
-                {{ account.my_percentage }}%
+                {{ account.my_percentage|floatformat:2 }}%
             {% endif %}
         </div>
     </div>
@@ -69,6 +70,7 @@
 <div style="background: var(--bg-content); border-radius: 8px; padding: 24px; border: 1px solid var(--border); margin-bottom: 24px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <h3 style="font-size: 18px; font-weight: 600; margin: 0;">Account Information</h3>
+        <a href="{% url 'client_exchange_edit' account.pk %}" class="btn btn-sm" style="font-size: 13px;">Edit Percentage</a>
     </div>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
         <div>
@@ -87,15 +89,15 @@
         </div>
         <div>
             <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">My Total %</div>
-            <div style="font-weight: 500;">{{ account.my_percentage }}%</div>
+            <div style="font-weight: 500;">{{ account.my_percentage|floatformat:2 }}%</div>
         </div>
         <div>
             <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">Loss Share %</div>
-            <div style="font-weight: 500;">{{ account.loss_share_percentage|default:account.my_percentage }}%</div>
+            <div style="font-weight: 500;">{{ account.loss_share_percentage|default:account.my_percentage|floatformat:2 }}%</div>
         </div>
         <div>
             <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">Profit Share %</div>
-            <div style="font-weight: 500;">{{ account.profit_share_percentage|default:account.my_percentage }}%</div>
+            <div style="font-weight: 500;">{{ account.profit_share_percentage|default:account.my_percentage|floatformat:2 }}%</div>
         </div>
         <div>
             <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">Created</div>
@@ -115,11 +117,11 @@
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
         <div>
             <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">Company %</div>
-            <div style="font-weight: 500;">{{ account.report_config.friend_percentage }}%</div>
+            <div style="font-weight: 500;">{{ account.report_config.friend_percentage|floatformat:2 }}%</div>
         </div>
         <div>
             <div style="font-size: 13px; color: var(--muted); margin-bottom: 4px;">My Own %</div>
-            <div style="font-weight: 500;">{{ account.report_config.my_own_percentage }}%</div>
+            <div style="font-weight: 500;">{{ account.report_config.my_own_percentage|floatformat:2 }}%</div>
         </div>
     </div>
     <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted);">

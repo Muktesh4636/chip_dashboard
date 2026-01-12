@@ -648,17 +648,20 @@ class ClientExchangeReportConfig(TimeStampedModel):
     def clean(self):
         """Validation: friend_percentage + my_own_percentage = my_percentage"""
         from django.core.exceptions import ValidationError
+        from decimal import Decimal
         
         if self.client_exchange:
-            my_total = float(self.client_exchange.my_percentage)
-            friend_plus_own = float(self.friend_percentage) + float(self.my_own_percentage)
+            my_total = Decimal(str(self.client_exchange.my_percentage))
+            friend_pct = Decimal(str(self.friend_percentage))
+            own_pct = Decimal(str(self.my_own_percentage))
+            friend_plus_own = friend_pct + own_pct
             
             # Use epsilon for floating point comparison
-            epsilon = 0.01
+            epsilon = Decimal('0.01')
             if abs(friend_plus_own - my_total) >= epsilon:
                 raise ValidationError(
-                    f"Friend % ({self.friend_percentage}) + My Own % ({self.my_own_percentage}) "
-                    f"must equal My Total % ({my_total})"
+                    f"Company % ({friend_pct:.2f}) + My Own % ({own_pct:.2f}) = {friend_plus_own:.2f}, "
+                    f"but My Total % = {my_total:.2f}. They must be equal."
                 )
     
     def compute_friend_share(self):

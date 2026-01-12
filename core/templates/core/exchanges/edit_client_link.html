@@ -37,26 +37,8 @@
         
         <div class="form-row">
             <label class="field-label">My Total Percentage *</label>
-            <input type="number" name="my_percentage" id="my-percentage-input" class="field-input" min="0" max="100" value="{{ client_exchange.my_percentage }}" required>
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your total percentage share (0-100)</div>
-        </div>
-        
-        <div class="form-row">
-            <label class="field-label">Loss Share Percentage *</label>
-            <input type="number" name="loss_share_percentage" id="loss-share-input" class="field-input" min="0" max="100" value="{{ client_exchange.loss_share_percentage }}" required {% if not can_edit_loss_percentage %}disabled{% endif %}>
-            <div style="font-size: 12px; color: {% if can_edit_loss_percentage %}var(--muted){% else %}var(--danger){% endif %}; margin-top: 4px;">
-                {% if can_edit_loss_percentage %}
-                    Admin share percentage for losses (0-100)
-                {% else %}
-                    ⚠️ Cannot be changed - transactions already exist. Loss percentage is immutable once data exists.
-                {% endif %}
-            </div>
-        </div>
-        
-        <div class="form-row">
-            <label class="field-label">Profit Share Percentage *</label>
-            <input type="number" name="profit_share_percentage" id="profit-share-input" class="field-input" min="0" max="100" value="{{ client_exchange.profit_share_percentage }}" required>
-            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Admin share percentage for profits (0-100). Can be changed anytime.</div>
+            <input type="number" name="my_percentage" id="my-percentage-input" class="field-input" min="0" max="100" step="0.01" value="{{ client_exchange.my_percentage }}" required>
+            <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your total percentage share (0-100, decimals allowed). This will be used for both loss and profit calculations.</div>
         </div>
         
         {% if report_config %}
@@ -65,14 +47,14 @@
             
             <div class="form-row">
                 <label class="field-label">Company Percentage</label>
-                <input type="number" name="friend_percentage" class="field-input" min="0" max="100" value="{{ report_config.friend_percentage }}">
-                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Company percentage (report only). Must sum with "My Own %" to equal "My Total %".</div>
+                <input type="number" name="friend_percentage" class="field-input" min="0" max="100" step="0.01" value="{{ report_config.friend_percentage }}">
+                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Company percentage (report only, decimals allowed). Must sum with "My Own %" to equal "My Total %".</div>
             </div>
             
             <div class="form-row">
                 <label class="field-label">My Own Percentage</label>
-                <input type="number" name="my_own_percentage" class="field-input" min="0" max="100" value="{{ report_config.my_own_percentage }}">
-                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your own percentage (report only). Company % + My Own % = My Total %.</div>
+                <input type="number" name="my_own_percentage" class="field-input" min="0" max="100" step="0.01" value="{{ report_config.my_own_percentage }}">
+                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Your own percentage (report only, decimals allowed). Company % + My Own % = My Total %.</div>
             </div>
         </div>
         {% endif %}

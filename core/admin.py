@@ -20,14 +20,26 @@ class ClientExchangeReportConfigInline(admin.StackedInline):
             def clean(self):
                 cleaned_data = super().clean()
                 if self.instance and self.instance.client_exchange:
-                    friend_pct = cleaned_data.get('friend_percentage', 0)
-                    my_own_pct = cleaned_data.get('my_own_percentage', 0)
+                    from decimal import Decimal
+                    friend_pct = cleaned_data.get('friend_percentage', 0) or Decimal('0')
+                    my_own_pct = cleaned_data.get('my_own_percentage', 0) or Decimal('0')
                     my_total = self.instance.client_exchange.my_percentage
                     
-                    if friend_pct + my_own_pct != my_total:
+                    # Convert to Decimal for precise comparison
+                    if isinstance(friend_pct, (int, float)):
+                        friend_pct = Decimal(str(friend_pct))
+                    if isinstance(my_own_pct, (int, float)):
+                        my_own_pct = Decimal(str(my_own_pct))
+                    if isinstance(my_total, (int, float)):
+                        my_total = Decimal(str(my_total))
+                    
+                    # Validate with epsilon for floating point comparison
+                    epsilon = Decimal('0.01')
+                    sum_percentages = friend_pct + my_own_pct
+                    if abs(sum_percentages - my_total) >= epsilon:
                         raise ValidationError(
-                            f"Friend % ({friend_pct}) + My Own % ({my_own_pct}) "
-                            f"must equal My Total % ({my_total})"
+                            f"Company % ({friend_pct:.2f}) + My Own % ({my_own_pct:.2f}) = {sum_percentages:.2f}, "
+                            f"but My Total % = {my_total:.2f}. They must be equal."
                         )
                 return cleaned_data
         

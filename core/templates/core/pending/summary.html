@@ -113,7 +113,9 @@
                     </td>
                     <td>{{ item.share_percentage }}%</td>
                     <td>
-                        <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
+                        {% if not item.show_na %}
+                            <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
+                        {% endif %}
                         <a href="{% url 'exchange_account_detail' item.account.pk %}" class="btn btn-sm">View Account</a>
                     </td>
                 </tr>
@@ -189,7 +191,9 @@
                     </td>
                     <td>{{ item.share_percentage }}%</td>
                     <td>
-                        <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
+                        {% if not item.show_na %}
+                            <a href="{% url 'record_payment' item.account.pk %}?redirect_to=pending_summary" class="btn btn-sm btn-primary" style="margin-right: 4px;">Record Payment</a>
+                        {% endif %}
                         <a href="{% url 'exchange_account_detail' item.account.pk %}" class="btn btn-sm">View Account</a>
                     </td>
                 </tr>

@@ -72,11 +72,11 @@
         {% if report_config %}
         <tr>
             <td style="font-weight: 600; color: var(--muted);">Company % (Report):</td>
-            <td>{{ report_config.friend_percentage }}%</td>
+            <td>{{ report_config.friend_percentage|floatformat:2 }}%</td>
         </tr>
         <tr>
             <td style="font-weight: 600; color: var(--muted);">My Own % (Report):</td>
-            <td>{{ report_config.my_own_percentage }}%</td>
+            <td>{{ report_config.my_own_percentage|floatformat:2 }}%</td>
         </tr>
         {% endif %}
     </table>

@@ -89,24 +89,24 @@ DATABASES = {
     }
 }
 
-# Fallback to SQLite for development if PostgreSQL is not available
-# Uncomment below and comment above if you need SQLite temporarily
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.sqlite3',
-#         'NAME': BASE_DIR / 'db.sqlite3',
-#     }
-# }
-
-# Opt-in: allow using SQLite locally by setting USE_SQLITE environment variable.
-# This is useful for quick local runs where PostgreSQL isn't available.
-if config('USE_SQLITE', default=False, cast=bool):
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
+# Database
+# PostgreSQL Configuration (production-ready, efficient, scalable)
+# PostgreSQL only - SQLite fallback removed after successful data migration
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME', default='broker_portal'),
+        'USER': config('DB_USER', default='postgres'),
+        'PASSWORD': config('DB_PASSWORD', default=''),
+        'HOST': config('DB_HOST', default='localhost'),
+        'PORT': config('DB_PORT', default='5432'),
+        'OPTIONS': {
+            'connect_timeout': 10,
+        },
+        # Connection pooling for better performance
+        'CONN_MAX_AGE': 600 if not DEBUG else 0,  # Reuse connections in production
     }
+}
 
 
 # Password validation - Enhanced security

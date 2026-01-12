@@ -4,6 +4,7 @@ Forms for the Profit-Loss-Share-Settlement System
 from django import forms
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
+from decimal import Decimal
 from .models import Client, Exchange, ClientExchangeAccount, ClientExchangeReportConfig, Transaction, EmailOTP
 
 User = get_user_model()
@@ -38,21 +39,25 @@ class ClientExchangeLinkForm(forms.ModelForm):
     Form for linking client to exchange with percentages.
     This is the CONFIGURATION STEP from the document.
     """
-    friend_percentage = forms.IntegerField(
+    friend_percentage = forms.DecimalField(
         required=False,
         initial=0,
         min_value=0,
         max_value=100,
-        widget=forms.NumberInput(attrs={'class': 'field-input'}),
-        help_text="Friend/Student percentage (report only)"
+        max_digits=5,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={'class': 'field-input', 'step': '0.01'}),
+        help_text="Friend/Student percentage (report only, decimals allowed)"
     )
-    my_own_percentage = forms.IntegerField(
+    my_own_percentage = forms.DecimalField(
         required=False,
         initial=0,
         min_value=0,
         max_value=100,
-        widget=forms.NumberInput(attrs={'class': 'field-input'}),
-        help_text="Your own percentage (report only)"
+        max_digits=5,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={'class': 'field-input', 'step': '0.01'}),
+        help_text="Your own percentage (report only, decimals allowed)"
     )
     
     class Meta:
@@ -61,20 +66,30 @@ class ClientExchangeLinkForm(forms.ModelForm):
         widgets = {
             'client': forms.Select(attrs={'class': 'field-input'}),
             'exchange': forms.Select(attrs={'class': 'field-input'}),
-            'my_percentage': forms.NumberInput(attrs={'class': 'field-input'}),
+            'my_percentage': forms.NumberInput(attrs={'class': 'field-input', 'step': '0.01'}),
         }
     
     def clean(self):
         cleaned_data = super().clean()
         my_percentage = cleaned_data.get('my_percentage', 0)
-        friend_percentage = cleaned_data.get('friend_percentage', 0)
-        my_own_percentage = cleaned_data.get('my_own_percentage', 0)
+        friend_percentage = cleaned_data.get('friend_percentage', 0) or Decimal('0')
+        my_own_percentage = cleaned_data.get('my_own_percentage', 0) or Decimal('0')
         
-        # Validation Rule: Friend % + My Own % = My Total %
-        if friend_percentage + my_own_percentage != my_percentage:
+        # Convert to Decimal for precise comparison
+        if isinstance(my_percentage, (int, float)):
+            my_percentage = Decimal(str(my_percentage))
+        if isinstance(friend_percentage, (int, float)):
+            friend_percentage = Decimal(str(friend_percentage))
+        if isinstance(my_own_percentage, (int, float)):
+            my_own_percentage = Decimal(str(my_own_percentage))
+        
+        # Validation Rule: Friend % + My Own % = My Total % (with epsilon for floating point comparison)
+        epsilon = Decimal('0.01')
+        sum_percentages = friend_percentage + my_own_percentage
+        if abs(sum_percentages - my_percentage) >= epsilon:
             raise ValidationError(
-                f"Friend % ({friend_percentage}) + My Own % ({my_own_percentage}) "
-                f"must equal My Total % ({my_percentage})"
+                f"Company % ({friend_percentage}) + My Own % ({my_own_percentage}) = {sum_percentages}, "
+                f"but My Total % = {my_percentage}. They must be equal."
             )
         
         return cleaned_data
